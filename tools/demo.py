@@ -1,4 +1,4 @@
-"""Demonstração da regra diária; o agrupamento não comprova datas de captura das fotos."""
+"""Demonstração com as oito fotos gerais da semana do modelo Casa Bosque."""
 
 import argparse
 from pathlib import Path
@@ -18,20 +18,12 @@ def load_demo(repository: DraftRepository):
     original = report.photos
     report.photos = []
     report.tab_name = "Demonstração Casa Bosque"
-    report.notes = ("EXEMPLO DE AGRUPAMENTO DIÁRIO: dias atribuídos apenas para demonstração. "
-                    "Há fotos repetidas para completar os pares. Não é um registro diário validado.")
-    # O anexo tem oito fotos sem data individual confirmada. O exemplo usa 12 posições
-    # (2, 4, 2, 2, 2), identificando as repetições, sem inventar evidência de captura.
-    arrangement = [(0, 0), (0, 1), (1, 4), (1, 5), (1, 6), (1, 7),
-                   (2, 6), (2, 7), (3, 2), (3, 3), (4, 0), (4, 1)]
-    seen = set()
-    for day, index in arrangement:
-        photo = original[index]
+    report.notes = "DEMONSTRAÇÃO: dados e fotos gerais da semana transcritos do PDF Casa Bosque."
+    for photo in original:
         imported = repository.import_photo(ROOT / "examples" / photo.path, report.id)
-        imported.caption = ("FOTO REPETIDA — SOMENTE DEMONSTRAÇÃO" if index in seen else photo.caption)
+        imported.caption = photo.caption
         imported.original_name = photo.original_name
-        report.add_photo(imported, day)
-        seen.add(index)
+        report.add_photo(imported)
     repository.save(report)
     return report
 

@@ -144,6 +144,7 @@ def test_missing_photo_blocks_export(repo, report, tmp_path):
 @pytest.mark.parametrize("template", ["compact", "wide", "sintra"])
 def test_photos_and_tables_never_overlap_signature_or_other_cells(repo, template):
     report = load_demo(repo)
+    report.project_key, report.tab_name = "", "Teste de geometria"
     report.template = template
     report.employees.extend(ResourceRow(f"Função extra {n}", "2") for n in range(9))
     engine = LayoutEngine(report, repo)
@@ -168,7 +169,7 @@ def test_pdf_real_example_contains_every_day_photo_and_signature(repo, tmp_path)
     report = load_demo(repo)
     target = PDFGenerator(repo).generate(report, tmp_path / "real.pdf")
     with fitz.open(target) as doc:
-        assert len(doc) == 4
+        assert len(doc) == 3
         assert doc[0].rect.width == pytest.approx(PAGE_WIDTH, abs=.02)
         assert "SEG" in doc[0].get_text() and "TER" in doc[0].get_text()
         assert all(day in doc[1].get_text() for day in ("QUA", "QUI", "SEX"))
@@ -201,7 +202,7 @@ def test_xlsx_merges_images_wrap_numeric_values_and_literal_formula(repo, tmp_pa
     target = ExcelGenerator(repo).generate(report, tmp_path / "real.xlsx")
     wb = load_workbook(target)
     pages = [s for s in wb if s.sheet_state == "visible"]
-    assert len(pages) == 4 and wb["_Dados"].sheet_state == "hidden"
+    assert len(pages) == 3 and wb["_Dados"].sheet_state == "hidden"
     assert sum(len(s._images) for s in pages) >= len(report.photos)
     assert all(s.merged_cells.ranges for s in pages)
     assert all(s.page_setup.fitToWidth == 1 and s.page_setup.fitToHeight == 1 for s in pages)

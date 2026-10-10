@@ -1,4 +1,4 @@
-# GitHub + Render Free — versão 1.3
+# GitHub + Render Free — versão 1.4
 
 O pacote está configurado para um **Python Web Service no plano Free do Render**,
 sem disco pago e sem banco de dados externo. O GitHub guarda o código; o Render
@@ -53,7 +53,7 @@ O `.gitignore` exclui `.env`, ambientes virtuais, ZIPs e as pastas usuais de dad
 7. Informe `admin` e sua senha no diálogo do navegador.
 
 O `render.yaml` contém `plan: free`, não declara `disk` e não cria banco de dados.
-A chave de upload é gerada pelo Render. As quatro abas iniciais ficam vazias;
+A chave de upload é gerada pelo Render. As quatro abas iniciais vêm com os dados cadastrais dos modelos; os campos semanais começam vazios;
 os relatórios históricos do pacote não são carregados automaticamente.
 
 **Atualizações automáticas estão desligadas** (`autoDeployTrigger: "off"`).
@@ -120,10 +120,10 @@ transforma armazenamento temporário em permanente.
    As obras reaparecem em novas abas com o sufixo **(restaurada)**.
 
 O ZIP contém os rascunhos de todas as obras, inclusive incompletos, e suas fotos
-atuais com dias e legendas. A restauração preserva as obras existentes e cria cópias;
+atuais com seus títulos de atividade. A restauração preserva as obras existentes e cria cópias;
 restaurar o mesmo ZIP novamente cria outras cópias. Fotos removidas, versões JSON
 anteriores e PDFs/XLSX já exportados não entram no backup. Os relatórios podem ser
-regenerados. A exportação continua exigindo **2 ou 4 fotos por dia útil do período**.
+regenerados. As fotos são gerais da semana, com a atividade acima das imagens, sem dia/data.
 
 O backup tem limite de **100 MB**; a restauração também limita o conteúdo
 expandido a 200 MB. Fotos exportadas pelo aplicativo já são reduzidas para até
@@ -176,9 +176,22 @@ eliminação do sistema de arquivos que o Render Free realiza.
 | Backup não baixa | Aguarde uploads; confira fotos ausentes, integridade dos rascunhos e limite de 100 MB. |
 | ZIP não é aceito | Use o ZIP de **Baixar backup**, não o ZIP do código-fonte ou os PDFs. |
 | PDF/XLSX não abre | Permita pop-ups para a URL do aplicativo. |
-| Exportação reclama das fotos | Complete cada dia do período com exatamente 2 ou 4 fotos. |
+| Exportação reclama das fotos | Verifique se os arquivos de imagem ainda existem; reimporte os ausentes. |
 
 Referências: [Free](https://render.com/docs/free),
 [Blueprint](https://render.com/docs/blueprint-spec),
 [Python](https://render.com/docs/python-version) e
 [FastAPI](https://render.com/docs/deploy-fastapi).
+
+## Atualizar para dados fixos e fotos semanais (1.4)
+
+Baixe o backup antes de qualquer deploy no Free. Substitua os arquivos do repositório
+pelos desta versão, mantendo **as pastas completas** `rso/`, `assets/`, `tools/` e
+`tests/` ao lado de `web.py`. Envie também `tests/`: as regras antigas foram substituídas por
+`tests/test_weekly_photos.py`. Depois use **Manual Deploy**.
+
+Se aparecer `ModuleNotFoundError: No module named 'rso'`, a pasta `rso/` não foi enviada
+para o mesmo nível de `web.py`. Não mova os arquivos internos dela para a raiz.
+Os clientes/responsáveis/CREA/ART/alvarás são fixos por obra. Endereços e cliente do
+Átrio permanecem editáveis conforme autorizado. Restaure seu ZIP após o deploy;
+os campos semanais são preservados e o cadastro reconhecido é atualizado pelo modelo.

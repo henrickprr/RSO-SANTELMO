@@ -1,7 +1,7 @@
-# RSO Santelmo — versão 1.3 — Render Free
+# RSO Santelmo — versão 1.4.1 — Render Free
 
 Aplicativo Python/Flet para registrar e exportar Relatórios Semanais de Obra.
-Inclui quatro abas iniciais, criação de novas obras, tabelas editáveis, cinco dias
+Inclui quatro abas iniciais, criação de relatórios por obra, tabelas editáveis, cinco dias
 de atividades, importação de fotos com legendas, salvamento automático local,
 PDF com `fpdf2` e XLSX diagramado com `pandas`/`openpyxl`.
 
@@ -61,47 +61,60 @@ simultâneos. Use uma única janela de edição por pasta de dados. A instalaç�
 preparação inicial do runtime precisam de internet; o modo desktop salva e exporta
 sem conexão depois de instalado.
 
-## Uso
+## Uso e dados fixos por obra
 
-1. Escolha a aba da obra. Cada aba tem seu próprio `Report`, controles, fotos e JSON.
-2. Preencha a identificação, o período e as condições do tempo. Os nomes dos dias
-   acompanham a semana selecionada. Um período parcial é aceito se não houver
-   atividades registradas fora dele.
-3. Adicione/remova funcionários, equipes terceirizadas e equipamentos. Os totais
-   incluem todas as linhas; funcionários próprios e terceiros entram no total geral.
-4. Registre as atividades e os materiais (um item por linha). Selecione o **dia das
-   novas fotos** antes de importar. Cada dia útil do período precisa de **2 ou 4 fotos**.
-   As setas alteram a ordem dentro do mesmo dia. O campo **Dia da foto** permite
-   corrigir a classificação, respeitando o limite de quatro no destino.
-5. Preencha a assinatura e selecione a geometria do modelo. O tema **verde dos PDFs**
-   vem selecionado por padrão, conforme solicitado. O cinza escuro continua opcional.
-6. Exporte. No desktop, escolha onde salvar. No navegador, o arquivo abre para
-   download; uma cópia também permanece em `exports/` na pasta de dados.
+Os dados cadastrais são preenchidos automaticamente pelo arquivo `rso/projects.py`.
+Os campos ficam visíveis, mas não podem ser digitados. Cabeçalho da Santelmo,
+responsável técnico, engenheiro, CREA, ART, alvará e identificação da obra seguem
+os PDFs. ART e alvará são específicos de cada obra, não compartilhados entre elas.
 
-## Regra de fotos por dia
+| Obra | Cliente | ART | Alvará |
+|---|---|---|---|
+| Casa Bella Vista | FRANCISCO E JAMILLE | CE20251725141 | 227/2025 |
+| Casa Bosque | DANILO FONSECA | CE20261946083 | 216/2026 |
+| Casa Sintra | JUDSON E LAURA | CE20251740545 | 245/2025 |
+| Casa Átrio | Editável: não consta no modelo | CE20261896040 | 139/2026 |
 
-- Segunda a sexta são grupos separados, identificados também no PDF e no Excel.
-- **Máximo de quatro fotos por dia.** Uma seleção que exceda o espaço disponível é
-  recusada integralmente, sem importar apenas parte dos arquivos.
-- Para exportar, cada dia útil incluído no período deve conter **exatamente 2 ou 4
-  fotos**. Zero, uma ou três fotos deixam esse dia incompleto; mais de quatro também
-  são recusadas pelos exportadores, inclusive se o JSON tiver sido editado manualmente.
-- O rascunho pode ficar incompleto, inclusive após remover uma foto. O salvamento
-  automático preserva esse estado, e a exportação informa quais dias precisam de ajuste.
-- Em um período parcial, somente os dias úteis incluídos exigem fotos. Fotos atribuídas
-  a dias fora desse período bloqueiam a exportação até que o período ou a classificação
-  seja corrigido. Não há dispensa automática para feriados ou dias sem atividade.
-- Rascunhos antigos continuam legíveis. Fotos sem dia são preservadas no grupo
-  **Fotos sem dia definido**; o usuário precisa classificá-las antes de exportar.
-  Os novos JSONs usam `schema_version: 2`, mantendo leitura da versão 1.
+Responsável técnico: **ENGº DANILO JOSÉ FONSECA LIMA**. Engenheiro no rodapé:
+**DANILO FONSECA**, CREA **1915794803**.
 
-O relatório fotográfico sai em ordem de segunda a sexta, independentemente da ordem
-de importação. Uma linha não mistura dias. Quando um grupo continua em outra página,
-o título repete o dia, a data, a quantidade total e a indicação de continuação.
+**Exceções autorizadas:** os endereços das quatro obras e o cliente da Casa Átrio
+continuam editáveis, pois não constam nos modelos. O endereço do cabeçalho é o da
+empresa, não o endereço da obra. Os valores informados nessas exceções são salvos
+no rascunho e preservados no backup. Quando preenchido, o endereço acompanha o
+campo Obra na exportação; textos longos usam o complemento, sem serem descartados.
 
-Os cadastros iniciais contêm apenas os nomes das obras e a semana corrente. Clientes,
-ART, alvará e percentuais históricos **não** são transportados para uma nova semana.
-O arquivo de exemplo, separado, reproduz dados históricos da Casa Bosque.
+1. Escolha a aba da obra ou clique **Novo relatório** e selecione uma obra cadastrada.
+2. Preencha período, tempo, feriados e evolução. Em **Feriados na semana?**, marque
+   **Sim** ou **Não**; apenas uma caixa permanece selecionada. A resposta é salva
+   automaticamente e utilizada no PDF/XLSX. Os dados cadastrais já vêm preenchidos.
+3. Ajuste equipes, equipamentos, atividades diárias e chegada de materiais.
+4. Adicione as fotos gerais da semana e escreva a **atividade da foto**.
+5. Exporte PDF/XLSX. No Render Free, baixe também um backup antes de sair.
+
+Para adicionar outra obra ou corrigir informações permanentes, atualize o cadastro
+em `rso/projects.py`. Os novos relatórios começam sem atividades, equipes extras,
+fotos ou percentuais históricos. Os rascunhos antigos reconhecidos pelo nome da
+obra recebem o cadastro fixo atual, preservando informações semanais e as exceções
+editáveis. Os valores antigos do cadastro são substituídos pelos dados dos modelos.
+Faça backup antes de atualizar. Rascunhos de obras desconhecidas continuam legíveis.
+
+## Fotografias gerais da semana
+
+As fotos **não são associadas a dias**. Não há seletor de dia, data ou cabeçalho
+Segunda/Terça no relatório fotográfico. A regra anterior de 2 ou 4 fotos por dia
+foi removida a pedido do usuário. São aceitas quantidades pares ou ímpares, e os
+rascunhos/relatórios também podem ser gerados sem fotos.
+
+O nome da atividade aparece **acima das imagens**, em verde. Fotos consecutivas
+com o mesmo texto de atividade formam um grupo com título comum; use as setas para
+ordená-las. A grade usa uma ou duas colunas e preserva as proporções das imagens.
+O título é repetido acima de cada linha de fotos do grupo, inclusive nas continuações.
+As atividades escritas no corpo do relatório continuam organizadas por dia da semana.
+
+Fotos de rascunhos antigos mantêm caminhos, títulos e ordem, sem exigir a retirada
+manual do antigo campo `day`; ele é ignorado na interface e na exportação. O JSON
+continua usando `schema_version: 2`, com leitura da versão 1.
 
 ## Persistência e recuperação
 
@@ -169,11 +182,11 @@ Há diferenças deliberadas para cumprir os requisitos funcionais do pedido:
 
 - Bordas completas nas tabelas e células de dias, em lugar dos círculos e linhas
   parciais dos anexos.
-- Uma legenda abaixo de cada foto, em lugar das legendas coletivas acima de grupos.
+- Atividades acima dos grupos de fotos, conforme o pedido atualizado; sem dia/data.
 - Bloco de assinatura em todas as páginas fotográficas e de complemento, em lugar
   de assinatura somente na última página.
 - Fotos sem distorção, contidas em áreas fixas; a quantidade de páginas acompanha
-  a quantidade de fotos (2 ou 4 por dia) e a escolha de uma ou duas colunas.
+  a quantidade de fotos da semana e a escolha de uma ou duas colunas.
 - Textos que não caibam até o tamanho mínimo de 8 pt recebem uma referência para
   complemento. Linhas de equipe além das 14 posições do corpo também aparecem no
   complemento e continuam incluídas no total. Nenhum conteúdo é descartado.
@@ -215,6 +228,7 @@ rso/web_security.py       Configuração e autenticação HTTP/WebSocket
 rso/backup.py             Backup portátil e restauração como novas obras
 rso/backup_web.py         Download/upload do ZIP com autenticação
 rso/models.py             Report, ResourceRow, Photo e validação
+rso/projects.py           Cadastro fixo de cada obra e exceções editáveis
 rso/storage.py            JSON atômico, backup e importação de imagens
 rso/ui.py                 ObraTab e RSOApp; ft.Tabs, Cards e FilePickers
 rso/settings.py           Coordenadas em pontos, paletas e cabeçalho fixo
@@ -239,14 +253,11 @@ sem usar `ft.UserControl`, removido da API desta versão do Flet.
 
 ## Exemplo executável e testes
 
-O exemplo parte dos dados e das oito fotos do PDF Casa Bosque, de 28/09/2026 a
-02/10/2026. Como o anexo não identifica a data de cada foto, o novo exemplo contém
-**12 posições demonstrativas**, distribuídas em **2, 4, 2, 2 e 2 fotos**, com algumas
-repetições identificadas nas legendas. As datas atribuídas aos grupos são ilustrativas;
-não constituem comprovação de captura ou um novo relatório real da obra.
-
-PDF e XLSX já gerados estão em `examples/gerados/RSO-Demonstracao.pdf` e
-`examples/gerados/RSO-Demonstracao.xlsx`. Ambos têm quatro páginas/folhas de impressão.
+O exemplo usa os dados e as **oito fotos originais** do PDF Casa Bosque,
+de 28/09/2026 a 02/10/2026, sem duplicações para completar pares por dia.
+As atividades aparecem acima dos grupos de imagens. Os arquivos em
+`examples/gerados/RSO-Demonstracao.pdf` e `RSO-Demonstracao.xlsx` têm três
+páginas/folhas de impressão.
 
 ```bash
 python tools/demo.py
@@ -264,9 +275,6 @@ ruff check .
 Os testes verificam isolamento entre obras, recuperação de JSON, datas e quantidades,
 correção EXIF, arquivos ausentes, assinaturas, ausência de sobreposição na grade,
 paginação, textos extensos, células numéricas, imagens no XLSX e texto iniciado por
-`=` preservado como texto. Também verificam os limites diários nos dois exportadores,
-preservação de rascunhos incompletos, leitura de fotos antigas sem dia, agrupamento
-cronológico e rejeição de importações/movimentações acima do limite de quatro.
-O seletor nativo depende do sistema operacional; os fluxos
-web locais são uma alternativa e foram exercitados no navegador durante a entrega.
-
+`=` preservado como texto. Também verificam cadastro fixo por obra, exceções
+editáveis, migração de rascunhos, fotos gerais da semana, título acima das imagens,
+quantidades ímpares, uploads concorrentes e backup/restauração.

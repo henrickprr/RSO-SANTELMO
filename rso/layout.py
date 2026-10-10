@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 
-from .models import DAYS, DAY_SHORT, Report, ValidationError, parse_date, quantity
+from .models import DAY_SHORT, Report, ValidationError, parse_date, quantity
 from .settings import ASSETS, COMPANY, EMAIL, PAGE_HEIGHT, PAGE_WIDTH, PALETTES, TEMPLATES
 from .storage import DraftRepository
 
@@ -160,7 +160,7 @@ class LayoutEngine:
                      size=t.font_size + 0.5, bold=i == 0, color="009900" if i == 0 else "000000",
                      border=False, label="Cabeçalho da empresa")
         self.band(page, t.title_y, "RELATÓRIO SEMANAL DE OBRA (RSO)")
-        pairs = [("OBRA:", r.obra), ("CLIENTE:", r.cliente),
+        pairs = [("OBRA:", r.obra + (" — " + r.address if r.address else "")), ("CLIENTE:", r.cliente),
                  ("RESPONS. TÉCNICO:", r.responsavel_tecnico),
                  ("REFERÊNCIA:", f"DE {r.start} A {r.end}")]
         for i, (label, value) in enumerate(pairs):
@@ -303,35 +303,31 @@ class LayoutEngine:
         gap, caption_h = 12, 24
         photo_w = (t.width - (columns - 1) * gap) / columns
         image_h = 144 if columns == 2 else 225
-        stride = image_h + caption_h + 8
-        # Cada linha contém fotos de um único dia. O título com dia e data é repetido
-        # quando um conjunto de 4 fotos continua na página seguinte.
-        for day in r.active_days():
-            group = r.photos_for_day(day)
-            date = r.week_dates()[day]
+        # Agrupar fotos consecutivas da mesma atividade. O título vem ACIMA
+        # de uma ou duas imagens, como nos anexos, sem rótulo de dia/data.
+        groups = []
+        for photo in r.photos:
+            title = photo.caption.strip() or "REGISTRO DA SEMANA"
+            if groups and groups[-1][0] == title:
+                groups[-1][1].append(photo)
+            else:
+                groups.append((title, [photo]))
+        for title, group in groups:
             for offset in range(0, len(group), columns):
-                heading_h = 22 if offset == 0 else 0
-                if y + heading_h + image_h + caption_h > t.footer_y - 10:
+                caption_h = min(60, max(24, len(self.type.wrap(title, t.width - 8, 9, True)) * 11 + 6))
+                if y + caption_h + image_h > t.footer_y - 10:
                     current = PagePlan("Fotos")
                     pages.append(current)
                     self.band(current, 38, "RELATÓRIO FOTOGRÁFICO")
                     y = 66
-                    heading_h = 22
-                if heading_h:
-                    continuation = " • CONTINUAÇÃO" if offset else ""
-                    self.box(current, t.left, y, t.width, 18,
-                             f"{DAYS[day].upper()} • {date:%d/%m/%Y} • {len(group)} FOTOS{continuation}",
-                             bold=True, align="C", fill="EDF3E8", size=9)
-                    y += heading_h
+                self.box(current, t.left, y, t.width, caption_h, title,
+                         bold=True, align="C", color="548235", size=9, border=False,
+                         label="Atividade do registro fotográfico")
                 for col, photo in enumerate(group[offset:offset + columns]):
                     x = t.left + col * (photo_w + gap)
-                    path = self.repository.resolve_photo(photo)
-                    current.pictures.append(Picture(x, y, photo_w, image_h, path))
-                    self.box(current, x, y + image_h, photo_w, caption_h,
-                             photo.caption or f"{DAY_SHORT[day]} — foto {offset + col + 1}",
-                             bold=True, align="C", color="548235", size=9,
-                             label=f"{DAYS[day]} — legenda da foto {offset + col + 1}")
-                y += stride
+                    current.pictures.append(Picture(x, y + caption_h, photo_w, image_h,
+                                                   self.repository.resolve_photo(photo)))
+                y += caption_h + image_h + 8
         for page in pages:
             self.signature(page)
         return pages

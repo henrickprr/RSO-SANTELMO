@@ -7,6 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from uuid import UUID, uuid4
 
+from .projects import apply_project
+
 DAYS = ("Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira")
 DAY_SHORT = ("SEG", "TER", "QUA", "QUI", "SEX")
 WEATHER = ("Ensolarado", "Parcialmente nublado", "Nublado", "Chuvoso", "Não informado")
@@ -48,13 +50,15 @@ class Photo:
     caption: str = ""
     original_name: str = ""
     id: str = field(default_factory=lambda: uuid4().hex)
-    # 0 = segunda, ..., 4 = sexta; None preserva fotos de rascunhos antigos sem adivinhar o dia.
+    # Campo legado dos JSONs antigos. Fotos atuais são gerais da semana; dia não é exibido.
     day: int | None = None
 
 
 @dataclass
 class Report:
     id: str = field(default_factory=lambda: uuid4().hex)
+    project_key: str = ""
+    address: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     tab_name: str = "Nova obra"
     obra: str = ""
@@ -86,11 +90,13 @@ class Report:
     @classmethod
     def new(cls, name: str, template: str = "compact") -> Report:
         monday = date.today() - timedelta(days=date.today().weekday())
-        return cls(
+        report = cls(
             tab_name=name, obra=f"EXECUÇÃO DE EDIFICAÇÃO RESIDENCIAL UNIFAMILIAR - {name.upper()}",
             start=monday.strftime("%d/%m/%Y"),
             end=(monday + timedelta(days=4)).strftime("%d/%m/%Y"), template=template,
         )
+        apply_project(report)
+        return report
 
     @property
     def progress(self) -> float:
@@ -115,38 +121,19 @@ class Report:
         start, end = parse_date(self.start), parse_date(self.end)
         return [i for i, day in enumerate(self.week_dates()) if start <= day <= end]
 
-    def photos_for_day(self, day: int | None) -> list[Photo]:
-        return [photo for photo in self.photos if photo.day == day]
-
-    def assign_photo(self, photo: Photo, day: int) -> None:
-        if type(day) is not int or day not in range(5):
-            raise ValidationError("Selecione um dia de segunda a sexta-feira.")
-        if sum(p.day == day and p.id != photo.id for p in self.photos) >= 4:
-            raise ValidationError(f"{DAYS[day]} já contém 4 fotos. Remova ou mova uma foto primeiro.")
-        photo.day = day
-
-    def add_photo(self, photo: Photo, day: int) -> None:
+    def add_photo(self, photo: Photo, day: int | None = None) -> None:
         if any(p.id == photo.id for p in self.photos):
             raise ValidationError("Esta foto já foi adicionada ao relatório.")
-        self.assign_photo(photo, day)
+        # 'day' só é preservado para compatibilidade de JSONs antigos, sem efeito no relatório.
+        photo.day = day
         self.photos.append(photo)
 
     def validate_photos(self) -> None:
-        if any(type(photo.day) is not int or photo.day not in range(5) for photo in self.photos):
-            raise ValidationError("Indique o dia da semana de todas as fotos antes de exportar.")
-        active = self.active_days()
-        if not active:
-            raise ValidationError("O período deve incluir pelo menos um dia de segunda a sexta-feira.")
-        outside = [DAYS[i] for i in range(5) if i not in active and self.photos_for_day(i)]
-        if outside:
-            raise ValidationError("Há fotos fora do período: " + ", ".join(outside) + ".")
-        invalid = [f"{DAYS[i]} ({len(self.photos_for_day(i))} fotos)"
-                   for i in active if len(self.photos_for_day(i)) not in (2, 4)]
-        if invalid:
-            raise ValidationError("Cada dia do período deve ter 2 ou 4 fotos. Ajuste: "
-                                  + "; ".join(invalid) + ". O rascunho pode ser salvo incompleto.")
+        if len({p.id for p in self.photos}) != len(self.photos):
+            raise ValidationError("Há identificadores de fotos duplicados no relatório.")
 
     def validate(self) -> None:
+        apply_project(self)
         if not self.obra.strip():
             raise ValidationError("Preencha o nome da obra.")
         start, end = parse_date(self.start), parse_date(self.end)
@@ -171,6 +158,7 @@ class Report:
         self.validate_photos()
 
     def to_dict(self) -> dict:
+        apply_project(self)
         return asdict(self)
 
     @classmethod
@@ -210,5 +198,6 @@ class Report:
                 raise ValidationError("Foto inválida no rascunho.")
             if photo.day is not None and (type(photo.day) is not int or photo.day not in range(5)):
                 raise ValidationError("Dia da foto inválido no rascunho.")
+        apply_project(report)
         return report
 

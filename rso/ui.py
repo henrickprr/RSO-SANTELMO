@@ -17,6 +17,7 @@ from PIL import Image
 from .excel_generator import ExcelGenerator
 from .models import DAYS, WEATHER, Report, ResourceRow, ValidationError, parse_date
 from .pdf_generator import PDFGenerator
+from .projects import PROJECTS, apply_project, is_fixed_field
 from .settings import ASSETS
 from .storage import DraftRepository, atomic_write
 
@@ -37,6 +38,7 @@ class ObraTab(ft.Column):
                  on_name_change=None):
         super().__init__(expand=True, spacing=0)
         self.host_page = page
+        apply_project(report)
         self.report = report
         self.repository = repository
         self.on_name_change = on_name_change
@@ -46,10 +48,9 @@ class ObraTab(ft.Column):
         self.daily_labels: list[ft.Text] = []
         self.table_bodies: dict[str, ft.Column] = {}
         self.photo_body = ft.Column(spacing=10)
-        self.pending_uploads: dict[str, tuple[Path, int]] = {}
+        self.pending_uploads: dict[str, tuple[Path, None]] = {}
         self.finishing_uploads: set[str] = set()
         self.importing_photos = False
-        self.picker_day = 0
         self.pending_export: Path | None = None
         self.busy = False
         self.image_picker = ft.FilePicker(on_result=self.on_photos_selected,
@@ -98,11 +99,14 @@ class ObraTab(ft.Column):
     def field(self, name: str, label: str, *, multiline: bool = False,
               col=12, hint: str | None = None) -> ft.TextField:
         control = ft.TextField(label=label, value=getattr(self.report, name),
-                               on_change=self.bind(self.report, name), col=col,
+                               on_change=None if is_fixed_field(self.report, name) else self.bind(self.report, name),
+                               read_only=is_fixed_field(self.report, name),
+                               disabled=is_fixed_field(self.report, name), col=col,
                                multiline=multiline, min_lines=3 if multiline else 1,
                                max_lines=6 if multiline else 1, border_radius=9,
                                border_color="#D5DDD6", focused_border_color=GREEN,
-                               text_size=14, hint_text=hint, filled=True, bgcolor="white",
+                               text_size=14, hint_text=hint or ("Não informado no modelo" if is_fixed_field(self.report, name) else None),
+                               filled=True, bgcolor="#F3F5F2" if is_fixed_field(self.report, name) else "white",
                                content_padding=14)
         self.fields[name] = control
         return control
@@ -140,6 +144,7 @@ class ObraTab(ft.Column):
             setattr(self.report, name, value)
             self.commit()
         return ft.Dropdown(value=str(getattr(self.report, name)), label=label, col=col,
+                           disabled=is_fixed_field(self.report, name),
                            expanded_insets=0, width=1400,
                            options=[ft.dropdown.Option(key=k, text=v) for k, v in options],
                            on_change=changed, border_radius=9, text_size=14,
@@ -155,18 +160,42 @@ class ObraTab(ft.Column):
                                    ft.Text(subtitle, size=12, color=MUTED)], spacing=3, expand=True)],
                        spacing=14), ft.Container(height=2), *controls], spacing=16))))
 
+    def holiday_selector(self) -> ft.Column:
+        # Duas caixas, uma única resposta: marcar Sim desmarca Não e vice-versa.
+        # O modelo continua booleano, compatível com os rascunhos e exportadores.
+        async def choose_yes(event):
+            self.set_holidays(True)
+
+        async def choose_no(event):
+            self.set_holidays(False)
+
+        self.holiday_yes = ft.Checkbox(label="Sim", value=self.report.holidays,
+                                      on_change=choose_yes, active_color=GREEN)
+        self.holiday_no = ft.Checkbox(label="Não", value=not self.report.holidays,
+                                     on_change=choose_no, active_color=GREEN)
+        return ft.Column([
+            ft.Text("Feriados na semana?", weight=ft.FontWeight.W_600, color=INK),
+            ft.Row([self.holiday_yes, self.holiday_no], spacing=24),
+        ], spacing=4)
+
+    def set_holidays(self, value: bool) -> None:
+        self.report.holidays = value
+        self.holiday_yes.value = value
+        self.holiday_no.value = not value
+        self.commit()
+
     def build_form(self) -> None:
         metadata = [ft.ResponsiveRow([
             self.field("tab_name", "Nome da aba", col={"xs": 12, "md": 4}),
             self.field("cliente", "Cliente", col={"xs": 12, "md": 8}),
             self.field("obra", "Obra / descrição do empreendimento"),
+            self.field("address", "Endereço da obra"),
             self.field("responsavel_tecnico", "Responsável técnico"),
             self.date_field("start", "Data de início"), self.date_field("end", "Data de fim"),
             self.dropdown("morning", "Tempo • manhã", [(v, v) for v in WEATHER], col={"xs": 12, "md": 4}),
             self.dropdown("afternoon", "Tempo • tarde", [(v, v) for v in WEATHER], col={"xs": 12, "md": 4}),
             self.field("evolution", "Evolução da obra (%)", col={"xs": 12, "md": 4}),
-        ], run_spacing=16), ft.Checkbox(label="Houve feriados na semana", value=self.report.holidays,
-                                         on_change=self.bind(self.report, "holidays"))]
+        ], run_spacing=16), self.holiday_selector()]
         resources = [self.resource_table("employees", "Funcionários da empresa"),
                      self.resource_table("contractors", "Equipe de terceiros"),
                      self.resource_table("equipment", "Equipamentos"), self.summary,
@@ -186,14 +215,10 @@ class ObraTab(ft.Column):
                 on_change=change_activity)], spacing=8))
         self.upload_button = ft.OutlinedButton("Adicionar fotos", icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
                                                on_click=self.pick_photos)
-        self.upload_day = ft.Dropdown(label="Dia das novas fotos", value="0", width=300,
-                                     options=[ft.dropdown.Option(str(i), day) for i, day in enumerate(DAYS)])
-        self.photo_counts = ft.Row(wrap=True, spacing=8, run_spacing=8)
         photos = [self.field("materials", "Chegada de materiais", multiline=True,
                              hint="Um material por linha. Ex.: 50 sacos de cimento • 30/09"),
-                  ft.Text("Cada dia do período precisa de 2 ou 4 fotos para exportar. Máximo: 4 por dia.",
-                          color=GREEN, size=13), self.photo_counts,
-                  ft.Row([self.upload_day, self.upload_button], wrap=True),
+                  ft.Text("Fotos gerais da semana. O nome da atividade aparece acima das fotos.",
+                          color=GREEN, size=13), self.upload_button,
                   ft.Text("JPG, PNG ou WebP • até 30 MB por foto • rascunhos podem ficar incompletos",
                           size=12, color=MUTED), self.photo_body]
         footer = [ft.ResponsiveRow([
@@ -212,11 +237,11 @@ class ObraTab(ft.Column):
                 col={"xs": 12, "md": 4}),
         ], run_spacing=16)]
         self.form = ft.Column([
-            self.section("01", "Identificação da obra", "Dados da semana e condições do canteiro.", metadata, f"{self.report.id}-metadata"),
+            self.section("01", "Identificação da obra", "Cadastro fixo por obra; endereços e cliente do Átrio podem ser preenchidos.", metadata, f"{self.report.id}-metadata"),
             self.section("02", "Mão de obra e equipamentos", "Adicione as equipes e confira os totais calculados.", resources, f"{self.report.id}-resources"),
             self.section("03", "Atividades diárias", "Registre os serviços realizados de segunda a sexta-feira.", activities, f"{self.report.id}-activities"),
             self.section("04", "Materiais e registro fotográfico", "As fotos são copiadas para a pasta de dados do aplicativo.", photos, f"{self.report.id}-photos"),
-            self.section("05", "Responsabilidade e exportação", "Dados de assinatura e aparência do documento.", footer, f"{self.report.id}-footer"),
+            self.section("05", "Responsabilidade e exportação", "Responsáveis, CREA, ART e alvará fixos conforme o modelo da obra.", footer, f"{self.report.id}-footer"),
             ft.Container(height=12),
         ], expand=True, scroll=ft.ScrollMode.AUTO, spacing=16)
 
@@ -261,11 +286,6 @@ class ObraTab(ft.Column):
             dates = [None] * 5
         for label, name, date in zip(self.daily_labels, DAYS, dates):
             label.value = f"{name} • {date:%d/%m}" if date else name
-        if hasattr(self, "upload_day"):
-            self.upload_day.options = [ft.dropdown.Option(str(i),
-                f"{name} • {date:%d/%m}" if date else name)
-                for i, (name, date) in enumerate(zip(DAYS, dates))]
-            self.render_photos()
 
     def refresh_summary(self) -> None:
         try:
@@ -326,29 +346,19 @@ class ObraTab(ft.Column):
     async def pick_photos(self, event):
         if self.importing_photos or self.pending_uploads:
             return
-        self.picker_day = int(self.upload_day.value)
-        count = len(self.report.photos_for_day(self.picker_day))
-        if count >= 4:
-            self.toast(f"{DAYS[self.picker_day]} já tem 4 fotos. Remova ou mova uma para adicionar outra.", True)
-            return
-        self.image_picker.pick_files(dialog_title=f"Fotos de {DAYS[self.picker_day]} • até {4 - count}", allow_multiple=True,
+        self.image_picker.pick_files(dialog_title="Fotos gerais da semana", allow_multiple=True,
                                      file_type=ft.FilePickerFileType.CUSTOM,
                                      allowed_extensions=["jpg", "jpeg", "png", "webp"])
 
     def set_importing(self, value: bool) -> None:
         self.importing_photos = value
-        self.upload_button.disabled = self.upload_day.disabled = value
+        self.upload_button.disabled = value
         self.host_page.update()
 
     async def on_photos_selected(self, event: ft.FilePickerResultEvent):
         if not event.files:
             return
-        day = self.picker_day  # Capturado ao abrir o seletor, independentemente da aba ativa.
-        available = 4 - len(self.report.photos_for_day(day))
-        if len(event.files) > available:
-            self.toast(f"{DAYS[day]} permite adicionar mais {max(0, available)} foto(s). "
-                       "Nenhuma foto desta seleção foi importada.", True)
-            return
+        day = None  # Fotografias gerais da semana, sem vínculo com um dia.
         self.set_importing(True)
         if self.host_page.web:
             uploads = []
@@ -384,7 +394,7 @@ class ObraTab(ft.Column):
             self.render_photos()
             self.commit()
 
-    async def import_photo(self, path: Path, name: str, day: int) -> None:
+    async def import_photo(self, path: Path, name: str, day: int | None) -> None:
         try:
             photo = await asyncio.to_thread(self.repository.import_photo, path, self.report.id)
             photo.original_name = name
@@ -414,26 +424,6 @@ class ObraTab(ft.Column):
 
     def render_photos(self) -> None:
         self.photo_body.controls.clear()
-        try:
-            active = self.report.active_days()
-            dates = self.report.week_dates()
-        except ValidationError:
-            active, dates = list(range(5)), [None] * 5
-        self.photo_counts.controls = []
-        for day, name in enumerate(DAYS):
-            count = len(self.report.photos_for_day(day))
-            status = "completo" if count in (2, 4) else "incompleto"
-            if day not in active:
-                status = "fora do período"
-            self.photo_counts.controls.append(ft.Container(
-                ft.Text(f"{name}: {count}/4 • {status}", size=12,
-                        color=GREEN if count in (2, 4) and day in active else "#8A5B12"),
-                padding=10, bgcolor="#EDF3E9" if count in (2, 4) and day in active else "#FFF5E3",
-                border_radius=8))
-        if self.report.photos_for_day(None):
-            self.photo_body.controls.append(ft.Text(
-                "Há fotos de rascunhos antigos sem dia definido. Selecione o dia em cada foto para exportar.",
-                color="#8A5B12", size=13))
         if not self.report.photos:
             self.photo_body.controls.append(ft.Container(ft.Column([
                 ft.Icon(ft.Icons.ADD_A_PHOTO_OUTLINED, color="#899C8A", size=30),
@@ -441,18 +431,9 @@ class ObraTab(ft.Column):
                 ft.Text("Adicione fotos e escreva uma legenda para cada imagem.", color=MUTED, size=12),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
                 alignment=ft.alignment.center, padding=30, bgcolor=BACKGROUND, border_radius=12))
-        ordered = [photo for day in (None, *range(5)) for photo in self.report.photos_for_day(day)]
-        last_day = object()
-        for i, photo in enumerate(ordered):
-            peers = self.report.photos_for_day(photo.day)
-            group_index = peers.index(photo)
-            if photo.day != last_day:
-                label = "Fotos sem dia definido" if photo.day is None else DAYS[photo.day]
-                if photo.day is not None and dates[photo.day]:
-                    label += f" • {dates[photo.day]:%d/%m/%Y}"
-                self.photo_body.controls.append(ft.Text(label, size=15, color=GREEN,
-                                                        weight=ft.FontWeight.W_600))
-                last_day = photo.day
+        for i, photo in enumerate(self.report.photos):
+            peers = self.report.photos
+            group_index = i
             try:
                 with Image.open(self.repository.resolve_photo(photo)) as im:
                     im.thumbnail((210, 150))
@@ -465,7 +446,7 @@ class ObraTab(ft.Column):
                 preview = ft.Container(ft.Text("Foto ausente", color="#A33232"), width=130, height=94)
 
             async def move(event, photo=photo, delta=-1):
-                same_day = self.report.photos_for_day(photo.day)
+                same_day = self.report.photos
                 position = same_day.index(photo) + delta
                 if 0 <= position < len(same_day):
                     index = self.report.photos.index(photo)
@@ -483,25 +464,9 @@ class ObraTab(ft.Column):
                 self.render_photos()
                 self.commit()
 
-            async def change_day(event, photo=photo):
-                try:
-                    if self.importing_photos:
-                        raise ValidationError("Aguarde a importação das fotos para mudar o dia.")
-                    self.report.assign_photo(photo, int(event.control.value))
-                except (ValidationError, ValueError) as exc:
-                    event.control.value = str(photo.day) if photo.day is not None else None
-                    self.toast(str(exc), True)
-                    self.host_page.update()
-                    return
-                self.render_photos()
-                self.commit()
-
             self.photo_body.controls.append(ft.Container(ft.Row([
                 preview, ft.Column([ft.Text(f"{i + 1:02d}  {photo.original_name}", size=12, color=MUTED),
-                    ft.Dropdown(label="Dia da foto", value=str(photo.day) if photo.day is not None else None,
-                                options=[ft.dropdown.Option(str(d), name) for d, name in enumerate(DAYS)],
-                                width=320, on_change=change_day),
-                    ft.TextField(label="Legenda da foto", value=photo.caption, multiline=True,
+                    ft.TextField(label="Atividade da foto (título acima da imagem)", value=photo.caption, multiline=True,
                                  min_lines=2, max_lines=4, text_size=13, border_radius=8,
                                  on_change=self.bind(photo, "caption"))], expand=True),
                 ft.Column([ft.IconButton(ft.Icons.ARROW_UPWARD, tooltip="Mover foto para cima", on_click=move, disabled=group_index == 0),
@@ -612,7 +577,7 @@ class RSOApp:
                     ft.Column([ft.Text("Relatórios de obra", size=27, weight=ft.FontWeight.W_600, color=INK),
                                ft.Text("A semana documentada. Cada obra no seu lugar.", size=13, color=MUTED)],
                                expand=True, spacing=3),
-                    ft.OutlinedButton("Nova obra", icon=ft.Icons.ADD, on_click=self.new_report)], spacing=12),
+                    ft.OutlinedButton("Novo relatório", icon=ft.Icons.ADD, on_click=self.new_report)], spacing=12),
             ft.Row([
                 ft.TextButton("Backup e restauração", icon=ft.Icons.SAVE_ALT,
                               on_click=lambda e: page.launch_url("/backup", web_window_name="_blank")),
@@ -639,21 +604,16 @@ class RSOApp:
         self.tabs.tabs.append(ft.Tab(text=report.tab_name, content=view))
 
     async def new_report(self, event):
-        name = ft.TextField(label="Nome da obra", autofocus=True, value="", width=400)
-        template = ft.Dropdown(label="Modelo base", value="compact", options=[
-            ft.dropdown.Option("compact", "Átrio / Bosque"), ft.dropdown.Option("wide", "Bella Vista"),
-            ft.dropdown.Option("sintra", "Sintra")])
+        project = ft.Dropdown(label="Obra", value="sintra", width=420,
+            options=[ft.dropdown.Option(key, data["name"]) for key, data in PROJECTS.items()])
 
         async def create(event):
-            if not name.value.strip():
-                name.error_text = "Informe um nome para a obra."
-                self.page.update()
-                return
-            report = Report.new(name.value.strip(), template.value)
+            profile = PROJECTS[project.value]
+            report = Report.new(profile["name"], profile["template"])
             try:
                 self.repository.save(report)
             except OSError as exc:
-                name.error_text = f"Não foi possível salvar: {exc}"
+                project.error_text = f"Não foi possível salvar: {exc}"
                 self.page.update()
                 return
             self.add_tab(report)
@@ -661,9 +621,9 @@ class RSOApp:
             self.page.close(dialog)
             self.page.update()
 
-        dialog = ft.AlertDialog(title=ft.Text("Adicionar obra"),
-            content=ft.Column([name, template], tight=True, spacing=16),
+        dialog = ft.AlertDialog(title=ft.Text("Novo relatório semanal"),
+            content=ft.Column([project, ft.Text("Os dados cadastrais são preenchidos automaticamente.")],
+                              tight=True, spacing=16),
             actions=[ft.TextButton("Cancelar", on_click=lambda e: self.page.close(dialog)),
-                     ft.FilledButton("Criar obra", on_click=create)])
+                     ft.FilledButton("Criar relatório", on_click=create)])
         self.page.open(dialog)
-
