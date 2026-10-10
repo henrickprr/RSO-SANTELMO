@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "report": {
+    "id": "c2798b8b22454e97ac9e6ebf88f2f701",
+    "tab_name": "Casa Bosque",
+    "obra": "EXECUÇÃO DE EDIFICAÇÃO RESIDENCIAL UNIFAMILIAR - CASA BOSQUE",
+    "cliente": "DANILO FONSECA",
+    "responsavel_tecnico": "ENGº DANILO JOSÉ FONSECA LIMA",
+    "start": "28/09/2026",
+    "end": "02/10/2026",
+    "morning": "Ensolarado",
+    "afternoon": "Ensolarado",
+    "holidays": false,
+    "evolution": "10",
+    "activities": [
+      "ESCAVAÇÃO SAPATAS REMANESCENTES + EXEC. CONCRETO MAGRO SAPATAS REMANESCENTES",
+      "EXEC. CONCRETO MAGRO PARA RECEBIMENTO VIGAS BALDRAME + MONTAGEM ARMADURAS + MONTAGEM FÔRMAS PARA CONCRETAGEM VIGAS BALDRAME",
+      "EXEC. CONCRETAGEM DA VIGA BALDRAME",
+      "EXEC. CONCRETAGEM VIGAS BALDRAME + CONCLUSÃO MONTAGEM FÔRMAS VIGAS BALDRAME + MONTAGEM ARMADURAS PILARES TODAS SAPATAS",
+      "MONTAGEM FÔRMAS CONCRETAGEM PILARES (P1, P2, P3 E P4) + ATERRO E COMPACTAÇÃO ÁREAS INTERNAS VIGAS BALDRAME"
+    ],
+    "photos": [
+      {
+        "id": "photo1",
+        "path": "media/bosque-01.jpeg",
+        "original_name": "bosque-01.jpeg",
+        "caption": "EXEC. CONCRETO MAGRO SAPATAS REMANESCENTES"
+      },
+      {
+        "id": "photo2",
+        "path": "media/bosque-02.jpeg",
+        "original_name": "bosque-02.jpeg",
+        "caption": "EXEC. CONCRETO MAGRO SAPATAS REMANESCENTES"
+      },
+      {
+        "id": "photo3",
+        "path": "media/bosque-03.jpeg",
+        "original_name": "bosque-03.jpeg",
+        "caption": "MONTAGEM FÔRMAS CONCRETAGEM PILARES (P1, P2, P3 E P4) + ATERRO E COMPACTAÇÃO ÁREAS INTERNAS VIGAS BALDRAME"
+      },
+      {
+        "id": "photo4",
+        "path": "media/bosque-04.jpeg",
+        "original_name": "bosque-04.jpeg",
+        "caption": "MONTAGEM FÔRMAS CONCRETAGEM PILARES (P1, P2, P3 E P4) + ATERRO E COMPACTAÇÃO ÁREAS INTERNAS VIGAS BALDRAME"
+      },
+      {
+        "id": "photo5",
+        "path": "media/bosque-05.jpeg",
+        "original_name": "bosque-05.jpeg",
+        "caption": "EXEC. CONCRETO MAGRO PARA RECEBIMENTO VIGAS BALDRAME + MONTAGEM FÔRMAS PARA CONCRETAGEM VIGAS BALDRAME"
+      },
+      {
+        "id": "photo6",
+        "path": "media/bosque-06.jpeg",
+        "original_name": "bosque-06.jpeg",
+        "caption": "EXEC. CONCRETO MAGRO PARA RECEBIMENTO VIGAS BALDRAME + MONTAGEM FÔRMAS PARA CONCRETAGEM VIGAS BALDRAME"
+      },
+      {
+        "id": "photo7",
+        "path": "media/bosque-07.jpeg",
+        "original_name": "bosque-07.jpeg",
+        "caption": "EXEC. CONCRETO MAGRO PARA RECEBIMENTO VIGAS BALDRAME + MONTAGEM FÔRMAS PARA CONCRETAGEM VIGAS BALDRAME"
+      },
+      {
+        "id": "photo8",
+        "path": "media/bosque-08.jpeg",
+        "original_name": "bosque-08.jpeg",
+        "caption": "EXEC. CONCRETO MAGRO PARA RECEBIMENTO VIGAS BALDRAME + MONTAGEM FÔRMAS PARA CONCRETAGEM VIGAS BALDRAME"
+      }
+    ],
+    "engineer": "DANILO FONSECA",
+    "crea": "1915794803",
+    "art": "CE20261946083",
+    "permit": "216/2026",
+    "template": "compact",
+    "theme": "green",
+    "photo_columns": 2,
+    "employees": [
+      {
+        "description": "ENG. CIVIL",
+        "quantity": "0",
+        "company": "",
+        "id": "employee0"
+      },
+      {
+        "description": "ENG. ELETRICISTA",
+        "quantity": "0",
+        "company": "",
+        "id": "employee1"
+      },
+      {
+        "description": "ESTAGIÁRIO",
+        "quantity": "0",
+        "company": "",
+        "id": "employee2"
+      },
+      {
+        "description": "MESTRE DE OBRAS",
+        "quantity": "0",
+        "company": "",
+        "id": "employee3"
+      },
+      {
+        "description": "PEDREIRO",
+        "quantity": "3",
+        "company": "",
+        "id": "employee4"
+      },
+      {
+        "description": "ELETRICISTA",
+        "quantity": "0",
+        "company": "",
+        "id": "employee5"
+      },
+      {
+        "description": "SERVENTE",
+        "quantity": "1",
+        "company": "",
+        "id": "employee6"
+      },
+      {
+        "description": "CARPINTEIRO",
+        "quantity": "0",
+        "company": "",
+        "id": "employee7"
+      },
+      {
+        "description": "FERREIRO",
+        "quantity": "0",
+        "company": "",
+        "id": "employee8"
+      },
+      {
+        "description": "BOMBEIRO HIDRÁULICO",
+        "quantity": "0",
+        "company": "",
+        "id": "employee9"
+      },
+      {
+        "description": "PINTOR",
+        "quantity": "0",
+        "company": "",
+        "id": "employee10"
+      }
+    ]
+  }
+}
