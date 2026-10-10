@@ -1,0 +1,25 @@
+# Blueprint: no Render, escolha New > Blueprint e selecione este repositório.
+# Plano Free: armazenamento temporário. Baixe backups pelo aplicativo.
+services:
+  - type: web
+    name: rso-santelmo
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-web.txt
+    startCommand: python -m uvicorn web:create_app --factory --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers
+    healthCheckPath: /healthz
+    # Deploy manual para dar tempo de baixar o backup antes de atualizar.
+    autoDeployTrigger: "off"
+    envVars:
+      - key: RSO_DATA_DIR
+        value: /tmp/rso-data
+      - key: RSO_STORAGE_MODE
+        value: ephemeral
+      - key: RSO_USERNAME
+        value: admin
+      - key: RSO_PASSWORD
+        sync: false
+      - key: FLET_SECRET_KEY
+        generateValue: true
+      - key: TZ
+        value: America/Fortaleza

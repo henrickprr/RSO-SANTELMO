@@ -1,0 +1,3 @@
+-r requirements-core.txt
+flet[all]==0.28.3
+
