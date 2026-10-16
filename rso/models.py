@@ -69,6 +69,7 @@ class Report:
     morning: str = "Não informado"
     afternoon: str = "Não informado"
     holidays: bool = False
+    holiday_description: str = ""
     evolution: str = "0"
     employees: list[ResourceRow] = field(
         default_factory=lambda: [ResourceRow(description=role) for role in ROLES]

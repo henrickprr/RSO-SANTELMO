@@ -21,6 +21,8 @@ def data(tmp_path):
     report = Report.new("Casa backup")
     report.start = "02/"  # Rascunho incompleto também precisa de backup.
     report.activities[0] = "Atividade com acentuação preservada"
+    report.holidays = True
+    report.holiday_description = "12/10 — Nossa Senhora Aparecida"
     source = tmp_path / "image.jpg"
     Image.new("RGB", (100, 160), "navy").save(source)
     photo = repository.import_photo(source, report.id)
@@ -40,6 +42,7 @@ def test_restore_after_losing_all_server_files_preserves_draft_and_photo(data, t
     assert new.id != original.id
     assert new.tab_name == "Casa backup (restaurada)"
     assert new.start == "02/" and new.activities == original.activities
+    assert new.holidays and new.holiday_description == original.holiday_description
     assert new.photos[0].day == 1 and new.photos[0].caption == "Legenda preservada"
     assert destination.resolve_photo(new.photos[0]).read_bytes() == repository.resolve_photo(original.photos[0]).read_bytes()
     assert DraftRepository(destination.root).load_all()[0].photos[0].caption == "Legenda preservada"

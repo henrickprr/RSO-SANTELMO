@@ -8,9 +8,52 @@ from PIL import Image, ImageChops
 import pytest
 
 from rso.excel_generator import ExcelGenerator
+from rso.models import Report
 from rso.pdf_generator import PDFGenerator
 from rso.storage import DraftRepository
 from tools.demo import load_demo
+
+
+def test_old_drafts_default_to_empty_holiday_description_and_new_text_is_saved(tmp_path):
+    old = Report.new("Casa Sintra").to_dict()
+    old.pop("holiday_description")
+    report = Report.from_dict(old)
+    assert report.holiday_description == ""
+    report.holiday_description = "Feriado municipal"
+    repo = DraftRepository(tmp_path)
+    repo.save(report)
+    assert repo.load_all()[0].holiday_description == "Feriado municipal"
+    assert Report.new("Casa Bosque").holiday_description == ""
+
+
+@pytest.mark.parametrize("holidays", [False, True])
+def test_holiday_description_prints_only_when_yes_is_selected(tmp_path, holidays):
+    repo = DraftRepository(tmp_path / "data")
+    report = Report.new("Casa Sintra")
+    report.holidays = holidays
+    report.holiday_description = "12/10 — Nossa Senhora Aparecida"
+    pdf = PDFGenerator(repo).generate(report, tmp_path / "holiday.pdf")
+    with fitz.open(pdf) as doc:
+        text = " ".join(doc[0].get_text().split())
+        assert (report.holiday_description in text) == holidays
+    xlsx = ExcelGenerator(repo).generate(report, tmp_path / "holiday.xlsx")
+    wb = load_workbook(xlsx)
+    values = [" ".join(str(c.value).split()) for sheet in wb for row in sheet for c in row]
+    assert (report.holiday_description in values) == holidays
+
+
+def test_long_holiday_description_survives_export_in_appendix(tmp_path):
+    repo = DraftRepository(tmp_path / "data")
+    report = Report.new("Casa Sintra")
+    report.holidays = True
+    report.holiday_description = "Descrição extensa do feriado municipal. " * 30 + "FINALFERIADO"
+    pdf = PDFGenerator(repo).generate(report, tmp_path / "holiday.pdf")
+    with fitz.open(pdf) as doc:
+        assert "Ver complemento" in doc[0].get_text()
+        assert "FINALFERIADO" in " ".join(p.get_text() for p in doc)
+    xlsx = ExcelGenerator(repo).generate(report, tmp_path / "holiday.xlsx")
+    wb = load_workbook(xlsx)
+    assert any("FINALFERIADO" in str(c.value) for sheet in wb for row in sheet for c in row)
 
 
 @pytest.mark.parametrize("holidays", [False, True])

@@ -164,7 +164,7 @@ class ObraTab(ft.Column):
 
     def holiday_selector(self) -> ft.Column:
         # Duas caixas, uma única resposta: marcar Sim desmarca Não e vice-versa.
-        # O modelo continua booleano, compatível com os rascunhos e exportadores.
+        # A descrição é opcional e só aparece na impressão quando Sim está marcado.
         async def choose_yes(event):
             self.set_holidays(True)
 
@@ -175,10 +175,16 @@ class ObraTab(ft.Column):
                                       on_change=choose_yes, active_color=GREEN)
         self.holiday_no = ft.Checkbox(label="Não", value=not self.report.holidays,
                                      on_change=choose_no, active_color=GREEN)
+        self.holiday_description = self.field(
+            "holiday_description", "Qual foi o feriado?",
+            hint="Ex.: 12/10 — Nossa Senhora Aparecida")
+        self.holiday_description.expand = True
+        self.holiday_description.disabled = not self.report.holidays
         return ft.Column([
             ft.Text("Feriados na semana?", weight=ft.FontWeight.W_600, color=INK),
-            ft.Row([self.holiday_yes, self.holiday_no], spacing=24),
-            ft.Text("A opção selecionada também aparece marcada no PDF e no Excel.",
+            ft.Row([self.holiday_yes, self.holiday_description], spacing=12),
+            self.holiday_no,
+            ft.Text("Ao marcar Sim, descreva o feriado ao lado. O texto aparece no PDF e no Excel.",
                     size=12, color=MUTED),
         ], spacing=4)
 
@@ -186,6 +192,9 @@ class ObraTab(ft.Column):
         self.report.holidays = value
         self.holiday_yes.value = value
         self.holiday_no.value = not value
+        # Preservar a digitação caso Não seja marcado por engano. O exportador
+        # omite essa descrição enquanto não houver feriado na semana.
+        self.holiday_description.disabled = not value
         self.commit()
 
     def build_form(self) -> None:

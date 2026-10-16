@@ -74,10 +74,11 @@ def test_activity_titles_are_above_photos_without_day_or_date(data, tmp_path):
             assert "28/09/2026" not in page.get_text()
     xlsx = ExcelGenerator(repo).generate(report, tmp_path / "rso.xlsx")
     wb = load_workbook(xlsx)
-    for sheet in wb.worksheets[2:]:
-        if sheet.sheet_state == "visible":
-            values = " ".join(str(c.value) for row in sheet for c in row if c.value)
-            assert not any(day.upper() in values for day in DAYS)
+    sheet = wb["RSO"]
+    photo_header = next(c for row in sheet for c in row if c.value == "RELATÓRIO FOTOGRÁFICO")
+    values = " ".join(str(c.value) for row in sheet.iter_rows(min_row=photo_header.row)
+                      for c in row if c.value)
+    assert not any(day.upper() in values for day in DAYS)
 
 
 def test_ui_imports_more_than_four_weekly_photos_and_keeps_works_isolated(data):

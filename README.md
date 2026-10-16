@@ -1,4 +1,4 @@
-# RSO Santelmo — versão 1.5.2 — Render Free
+# RSO Santelmo — versão 1.5.3 — Render Free
 
 Aplicativo Python/Flet para registrar e exportar Relatórios Semanais de Obra.
 Inclui quatro abas iniciais, criação de relatórios por obra, tabelas editáveis, cinco dias
@@ -89,6 +89,10 @@ campo Obra na exportação; textos longos usam o complemento, sem serem descarta
    **Sim** ou **Não**; apenas uma caixa permanece selecionada. A resposta é salva
    automaticamente. No PDF e no XLSX, as duas opções têm caixinhas desenhadas,
    com marca de seleção somente na resposta escolhida. Os dados cadastrais já vêm preenchidos.
+   Ao marcar **Sim**, preencha o campo opcional **Qual foi o feriado?**, ao lado.
+   A descrição aparece junto de Sim no PDF/XLSX e é incluída no rascunho e no backup.
+   Ao marcar **Não**, o campo fica desabilitado e seu texto é omitido da impressão,
+   preservando a digitação para quando Sim for selecionado novamente.
 3. Ajuste equipes, equipamentos, atividades diárias e chegada de materiais.
 4. Adicione as fotos gerais da semana e escreva a **atividade da foto**.
 5. Exporte PDF/XLSX. No Render Free, baixe também um backup antes de sair.
@@ -191,8 +195,9 @@ ocupam páginas adicionais, sempre respeitando o espaço da assinatura.
 Na versão 1.5.1, o conteúdo de **todas as páginas é ampliado para margens de 7 mm
 nos quatro lados**, aproveitando mais a folha. Tabelas, textos, títulos e rodapé
 são reposicionados juntos; as fotos e os logotipos preservam suas proporções.
-O PDF e o Excel recebem o mesmo mapa final. No Excel, as margens já estão nas
-células de contorno; as configurações de impressão não acrescentam outra margem.
+O Excel reutiliza as medidas, estilos e margens laterais em um fluxo contínuo.
+Suas margens externas já estão nas células de contorno; as configurações de
+impressão não acrescentam outra margem.
 
 O logotipo, a marca d'água, os ícones de sol e os subsets de fontes foram extraídos
 dos anexos, preservando transparência. O verde é `#548235`. Os dados fixos da empresa
@@ -226,8 +231,11 @@ No PowerShell, use `$env:RSO_FONT_REGULAR = 'C:\caminho\TCM_____.TTF'` e o equiv
 para `RSO_FONT_BOLD`. Para fontes diferentes, o XLSX pode ser ajustado no
 `Font(name="Tw Cen MT", ...)` de `excel_generator.py`.
 
-O XLSX tem uma aba diagramada por página, com mesclas, bordas, cores, imagens,
-quebra de texto e impressão A4 ajustada a uma página. Uma aba `_Dados`, oculta,
+O XLSX tem **uma única aba visível, `RSO`, contínua**: cabeçalho, equipes, cinco
+dias, materiais, fotos, eventuais complementos e uma assinatura no final.
+Mantém mesclas, bordas, cores, imagens e quebra de texto. Não replica as quebras
+de página do PDF nem insere quebras manuais. A impressão A4 é ajustada a **uma
+folha de largura e quantas folhas forem necessárias na altura**. Uma aba `_Dados`, oculta,
 contém os valores numéricos organizados por pandas. O Excel usa a fonte instalada
 no computador e seu próprio motor de impressão; pode apresentar pequenas diferenças
 de fonte, espaçamento e escala em relação ao PDF. **O PDF é a referência de impressão.**
@@ -255,6 +263,7 @@ rso/ui.py                 ObraTab e RSOApp; ft.Tabs, Cards e FilePickers
 rso/settings.py           Coordenadas em pontos, paletas e cabeçalho fixo
 rso/layout.py             Grade compartilhada, quebra de texto e paginação
 rso/pdf_generator.py      PDFGenerator, fpdf2 e border=1
+rso/excel_layout.py       Seções em sequência, sem paginação do PDF
 rso/excel_generator.py    ExcelGenerator, pandas, openpyxl e imagens
 assets/                   Identidade visual e fontes
 examples/                 Dados, fotos e arquivos gerados da Casa Bosque
@@ -267,10 +276,12 @@ Para alterar as quatro margens, ajuste `PRINT_MARGIN` em `rso/settings.py`.
 `LayoutEngine.fill_print_area()` aplica esse limite a todas as páginas, depois da
 paginação. `Template` e `TEMPLATES` conservam as medidas-base do modelo original.
 As larguras dos três blocos de mão de obra estão em `LayoutEngine.resources()`;
-o grid e os espaços reservados para fotos estão em `LayoutEngine.photo_pages()`.
+o grid e os espaços reservados para fotos estão em `LayoutEngine.draw_photo_row()`
+e `photo_row_dimensions()`. A paginação PDF fica em `photo_pages()`.
 Os títulos usam `border="TB"`, `border_width=1.6` e `border_color="385723"`;
 esses valores controlam as linhas superior/inferior nos dois exportadores.
-O mapa de retângulos produzido por `LayoutEngine` é consumido pelos dois geradores.
+`LayoutEngine` produz as páginas PDF; `ExcelLayoutEngine` reutiliza seus elementos
+e estilos, organizando todas as seções em um único mapa vertical para o Excel.
 As coordenadas estão em **pontos**, com origem superior esquerda: 1 mm = 72/25,4 pt.
 
 `ObraTab` herda de `ft.Column`. Isso mantém o encapsulamento sugerido no pedido
@@ -281,8 +292,8 @@ sem usar `ft.UserControl`, removido da API desta versão do Flet.
 O exemplo usa os dados e as **oito fotos originais** do PDF Casa Bosque,
 de 28/09/2026 a 02/10/2026, sem duplicações para completar pares por dia.
 As atividades aparecem acima dos grupos de imagens. Os arquivos em
-`examples/gerados/RSO-Demonstracao.pdf` e `RSO-Demonstracao.xlsx` têm quatro
-páginas/folhas de impressão.
+`examples/gerados/RSO-Demonstracao.pdf` tem quatro páginas e
+`RSO-Demonstracao.xlsx` tem uma única aba visível contínua, com as oito fotos.
 
 ```bash
 python tools/demo.py

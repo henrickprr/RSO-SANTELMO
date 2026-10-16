@@ -41,7 +41,7 @@ def main():
     for extension, generator in (("pdf", PDFGenerator(repository)), ("xlsx", ExcelGenerator(repository))):
         path = generator.generate(report, args.output / f"RSO-Demonstracao.{extension}", plan)
         print(f"Gerado: {path}")
-    print(f"{len(plan)} páginas; {len(layout.overflow)} complementos.")
+    print(f"{len(plan)} páginas PDF; uma aba contínua no XLSX; {len(layout.overflow)} complementos.")
     print(f'Para abrir o exemplo na interface: python main.py --data-dir "{repository.root}"')
 
 

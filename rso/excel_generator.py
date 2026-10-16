@@ -1,4 +1,4 @@
-"""XLSX diagramado: células mescladas, imagens e uma folha por página do PDF."""
+"""XLSX diagramado em uma única aba contínua, independente das páginas do PDF."""
 
 from bisect import bisect_right
 from io import BytesIO
@@ -15,9 +15,10 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PageMargins
 from PIL import Image, ImageDraw
 
-from .layout import Checkbox, LayoutEngine, PagePlan
+from .excel_layout import ExcelLayoutEngine
+from .layout import Checkbox, PagePlan
 from .models import Report, quantity
-from .settings import PAGE_HEIGHT, PAGE_WIDTH
+from .settings import PAGE_WIDTH, PRINT_MARGIN
 from .storage import DraftRepository, atomic_write
 
 
@@ -60,14 +61,20 @@ class ExcelGenerator:
                                        ext=XDRPositiveSize2D(round(w * 12700), round(h * 12700)))
         ws.add_image(drawing)
 
-    def _page(self, wb: Workbook, page: PagePlan, index: int) -> None:
-        ws = wb.create_sheet(f"{index:02d} {page.title}"[:31])
+    def _sheet(self, wb: Workbook, page: PagePlan) -> None:
+        ws = wb.create_sheet("RSO")
         ws.sheet_view.showGridLines = False
         ws.sheet_view.zoomScale = 90
-        # Cada aresta do PDF vira uma divisão da grade do Excel: todas as células
+        # Cada aresta do layout vira uma divisão da grade do Excel: todas as células
         # de um mesmo retângulo são mescladas, mantendo as posições relativas.
         xs = sorted({0.0, PAGE_WIDTH, *(round(v, 3) for box in page.boxes for v in (box.x, box.x + box.w))})
-        ys = sorted({0.0, PAGE_HEIGHT, *(round(v, 3) for box in page.boxes for v in (box.y, box.y + box.h))})
+        height = max(item.y + item.h for item in [*page.boxes, *page.pictures]) + PRINT_MARGIN
+        ys = sorted({0.0, round(height, 3),
+                     *(round(v, 3) for box in page.boxes for v in (box.y, box.y + box.h))})
+        # Fotos altas ou áreas vazias não podem gerar linhas acima de 409 pt.
+        ys = sorted({*ys, *(round(a + step * 200, 3)
+                           for a, b in zip(ys, ys[1:])
+                           for step in range(1, int((b - a) / 200) + 1) if a + step * 200 < b)})
         xmap = {v: i + 1 for i, v in enumerate(xs)}
         ymap = {v: i + 1 for i, v in enumerate(ys)}
         # Excel mede larguras pelo glifo '0' da fonte padrão (Calibri 11).
@@ -125,7 +132,7 @@ class ExcelGenerator:
         ws.page_setup.orientation = "portrait"
         ws.page_setup.paperSize = ws.PAPERSIZE_A4
         ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 1
+        ws.page_setup.fitToHeight = 0  # Altura livre: não reduzir tudo a uma folha ilegível.
         # Os 7 mm já estão no mapa/células. Margem extra aqui reduziria o relatório
         # novamente ao usar fitToPage e duplicaria o espaço reservado nas bordas.
         ws.page_margins = PageMargins(left=0, right=0, top=0, bottom=0, header=0, footer=0)
@@ -133,8 +140,8 @@ class ExcelGenerator:
 
     @staticmethod
     def _data(wb: Workbook, report: Report) -> None:
-        # pandas organiza os dados numéricos em folha auxiliar oculta. As folhas de
-        # impressão continuam diagramadas, sem depender dessa folha para sua aparência.
+        # pandas organiza os dados numéricos em folha auxiliar oculta. A aba RSO
+        # continua diagramada, sem depender dessa folha para sua aparência.
         records = [dict(Grupo=label, Empresa=row.company, Descrição=row.description,
                         Quantidade=quantity(row.quantity))
                    for label, rows in (("Empresa", report.employees), ("Terceiros", report.contractors),
@@ -152,13 +159,14 @@ class ExcelGenerator:
     def generate(self, report: Report, destination: str | Path,
                  plan: list[PagePlan] | None = None) -> Path:
         report.validate()
-        pages = plan if plan is not None else LayoutEngine(report, self.repository).build()
+        # `plan` é mantido para compatibilidade com chamadas antigas. O XLSX
+        # monta seu próprio fluxo e não usa as quebras recebidas do plano PDF.
+        sheet = ExcelLayoutEngine(report, self.repository).build_sheet()
         wb = Workbook()
         wb.remove(wb.active)
         wb.properties.creator = "Santelmo Engenharia Ltda"
         wb.properties.title = f"RSO — {report.tab_name}"
-        for index, page in enumerate(pages, 1):
-            self._page(wb, page, index)
+        self._sheet(wb, sheet)
         self._data(wb, report)
         buffer = BytesIO()
         wb.save(buffer)

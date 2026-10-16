@@ -46,7 +46,7 @@ class PDFGenerator:
                 pdf.set_xy(box.x, box.y)
                 # GRID: a célula exterior define as bordas. As larguras e posições estão
                 # em settings.py/layout.py; True desenha quatro arestas, "TB" somente
-                # superior/inferior. Cor e espessura pertencem ao mesmo mapa do Excel.
+                # superior/inferior. Cor e espessura são reutilizadas no Excel.
                 border = box.border if isinstance(box.border, str) else int(box.border)
                 pdf.cell(box.w, box.h, "", border=border,
                          fill=bool(box.fill))

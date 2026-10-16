@@ -1,10 +1,22 @@
-# Validação — versão 1.5.2
+# Validação — versão 1.5.3
 
-- 101 testes automatizados aprovados, incluindo sete novos testes de upload.
+- 112 testes automatizados aprovados, incluindo persistência, rascunhos antigos,
+  impressão condicional e preservação de descrições extensas de feriados.
   Lint sem ocorrências.
+- Descrição do feriado preservada na restauração do backup. PDF/XLSX mostram
+  o texto apenas quando Sim está selecionado; Não omite a descrição.
+- Chromium na versão 1.5.3: campo ao lado de Sim, habilitação/desabilitação,
+  preservação ao alternar Sim/Não, isolamento entre obras e recuperação após recarga.
+  PDF e XLSX exportados pela interface e conferidos com a descrição preenchida.
+- Excel com uma única aba visível RSO, cinco dias em sequência, todas as fotos
+  na ordem original, cabeçalho e assinatura únicos. Sem quebras manuais, impressão
+  com largura de uma folha e altura livre; a aba auxiliar _Dados permanece oculta.
+- Fluxo contínuo conferido nos três modelos, com uma e duas colunas de fotos,
+  sem sobreposição entre células, fotos e assinatura. Textos extensos preservados
+  no complemento da mesma aba, mesmo quando o plano PDF tem páginas adicionais.
 - Falha anterior reproduzida em Chromium: lote de oito fotos importava apenas três
   e deixava o botão bloqueado. A seleção por índices do Flet mudava após cada remoção.
-- Chromium nesta versão: oito fotos enviadas em lote, com nomes, ordem e conteúdo
+- Chromium na versão 1.5.2: oito fotos enviadas em lote, com nomes, ordem e conteúdo
   conferidos; seleção repetida de `QD.jpeg` em lotes novos e em obras diferentes.
 - Falha HTTP 503 simulada: nenhuma foto incompleta adicionada; nova seleção envia
   corretamente e libera o botão. Arquivos temporários removidos ao concluir.
@@ -33,7 +45,7 @@
   e cliente do Átrio, upload de fotos sem dia e geração de PDF/XLSX pela interface.
 - Fotos gerais da semana, sem cabeçalhos de dia/data. Quantidades ímpares aceitas;
   importações acima de quatro fotos permitidas; títulos acima das imagens.
-- Exemplo original Casa Bosque: oito fotos, quatro páginas PDF e quatro folhas XLSX.
+- Exemplo original Casa Bosque: oito fotos, quatro páginas PDF e uma aba contínua XLSX.
   As áreas-base de 210 pt em duas colunas e 300 pt em uma coluna recebem agora
   a ampliação final da página, preservando as proporções das imagens.
 - Testes de PDF/XLSX cobrem imagens, texto, assinatura, proporções, bordas, paginação,

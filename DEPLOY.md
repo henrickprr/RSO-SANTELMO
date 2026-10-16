@@ -1,4 +1,4 @@
-# GitHub + Render Free — versão 1.5.2
+# GitHub + Render Free — versão 1.5.3
 
 O pacote está configurado para um **Python Web Service no plano Free do Render**,
 sem disco pago e sem banco de dados externo. O GitHub guarda o código; o Render
@@ -177,7 +177,7 @@ eliminação do sistema de arquivos que o Render Free realiza.
 | ZIP não é aceito | Use o ZIP de **Baixar backup**, não o ZIP do código-fonte ou os PDFs. |
 | PDF/XLSX não abre | Permita pop-ups para a URL do aplicativo. |
 | Exportação reclama das fotos | Verifique se os arquivos de imagem ainda existem; reimporte os ausentes. |
-| Upload mostra `Stream has already been listened to` ou trava ao enviar várias fotos | Atualize para 1.5.2, recarregue a página e use **Adicionar fotos** para selecionar novamente os arquivos que falharam. |
+| Upload mostra `Stream has already been listened to` ou trava ao enviar várias fotos | Atualize para 1.5.3, recarregue a página e use **Adicionar fotos** para selecionar novamente os arquivos que falharam. |
 
 Referências: [Free](https://render.com/docs/free),
 [Blueprint](https://render.com/docs/blueprint-spec),

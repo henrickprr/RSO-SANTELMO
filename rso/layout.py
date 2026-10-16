@@ -1,4 +1,4 @@
-"""Mapa de páginas compartilhado por PDF e XLSX; nenhuma medida depende da UI.
+"""Primitivas gráficas e paginação PDF, reutilizadas no fluxo contínuo XLSX.
 
 Os retângulos usam coordenadas absolutas em pontos, origem no canto superior esquerdo.
 Tabelas longas e textos extensos ganham complemento, nunca são descartados.
@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 
-from .models import DAY_SHORT, Report, ValidationError, parse_date, quantity
+from .models import DAY_SHORT, Photo, Report, ValidationError, parse_date, quantity
 from .settings import (
     ASSETS, COMPANY, EMAIL, PAGE_HEIGHT, PAGE_WIDTH, PALETTES, PRINT_MARGIN, TEMPLATES,
 )
@@ -209,8 +209,16 @@ class LayoutEngine:
                 page.pictures.append(Picture(t.left + 58 + (widths[0] - 80) / 2,
                                              y + i * 24 + 1, 22, 22, ASSETS / icon, True))
         for i, (label, checked) in enumerate((("Sim", r.holidays), ("Não", not r.holidays))):
-            self.box(page, t.left + widths[0], y + i * 24, widths[1], 24,
-                     label, bold=True)
+            holiday_x, holiday_y = t.left + widths[0], y + i * 24
+            if label == "Sim":
+                # Reservar 60 pt para Sim + checkbox. As duas células têm somente
+                # a borda exterior, deixando a descrição ao lado sem linha divisória.
+                self.box(page, holiday_x, holiday_y, 60, 24, label, bold=True, border="LTB")
+                self.box(page, holiday_x + 60, holiday_y, widths[1] - 60, 24,
+                         r.holiday_description.strip() if r.holidays else "",
+                         border="RTB", size=9, label="Feriado da semana")
+            else:
+                self.box(page, holiday_x, holiday_y, widths[1], 24, label, bold=True)
             # Caixa de 12 pt, alinhada às duas opções. Não depende de glifos da fonte.
             page.checkboxes.append(Checkbox(t.left + widths[0] + 42,
                                             y + i * 24 + 6, 12, checked))
@@ -317,44 +325,55 @@ class LayoutEngine:
         self.box(page, t.left, t.footer_y + 65, t.width, 14, EMAIL,
                  align="C", fill=self.fill, color="FFFFFF", size=t.font_size + 1)
 
-    def photo_pages(self, second: PagePlan) -> list[PagePlan]:
-        t, r = self.t, self.report
-        pages = [second]
-        current = second
-        self.band(current, t.photos_y, "RELATÓRIO FOTOGRÁFICO")
-        y = t.photos_y + t.title_h + 10
-        columns = r.photo_columns
-        # Medidas em pontos (72 pt = 1 polegada). Ajuste estes valores para mudar
-        # o tamanho das fotos; a paginação considera também título e assinatura.
-        gap, title_gap, row_gap = 8, 6, 14
-        photo_w = (t.width - (columns - 1) * gap) / columns
-        image_h = 210 if columns == 2 else 300
+    def photo_rows(self):
         # Agrupar fotos consecutivas da mesma atividade. O título vem ACIMA
         # de uma ou duas imagens, como nos anexos, sem rótulo de dia/data.
         groups = []
-        for photo in r.photos:
+        for photo in self.report.photos:
             title = photo.caption.strip() or "REGISTRO DA SEMANA"
             if groups and groups[-1][0] == title:
                 groups[-1][1].append(photo)
             else:
                 groups.append((title, [photo]))
+        columns = self.report.photo_columns
         for title, group in groups:
             for offset in range(0, len(group), columns):
-                caption_h = min(70, max(28, len(self.type.wrap(title, t.width - 8, 10, True)) * 12 + 10))
-                if y + caption_h + title_gap + image_h > t.footer_y - 10:
-                    current = PagePlan("Fotos")
-                    pages.append(current)
-                    self.band(current, 38, "RELATÓRIO FOTOGRÁFICO")
-                    y = 66
-                self.box(current, t.left, y, t.width, caption_h, title,
-                         bold=True, align="C", color="548235", size=10, border="TB",
-                         border_color="385723", border_width=1.6,
-                         label="Atividade do registro fotográfico")
-                for col, photo in enumerate(group[offset:offset + columns]):
-                    x = t.left + col * (photo_w + gap)
-                    current.pictures.append(Picture(x, y + caption_h + title_gap, photo_w, image_h,
-                                                   self.repository.resolve_photo(photo)))
-                y += caption_h + title_gap + image_h + row_gap
+                yield title, group[offset:offset + columns]
+
+    def photo_row_dimensions(self, title: str) -> tuple[float, float]:
+        caption_h = min(70, max(28, len(self.type.wrap(title, self.t.width - 8, 10, True)) * 12 + 10))
+        return caption_h, 210 if self.report.photo_columns == 2 else 300
+
+    def draw_photo_row(self, page: PagePlan, title: str, photos: list[Photo], y: float) -> float:
+        # Medidas em pontos, reutilizadas na paginação PDF e no fluxo contínuo XLSX.
+        t = self.t
+        gap, title_gap, row_gap = 8, 6, 14
+        caption_h, image_h = self.photo_row_dimensions(title)
+        photo_w = (t.width - (self.report.photo_columns - 1) * gap) / self.report.photo_columns
+        self.box(page, t.left, y, t.width, caption_h, title,
+                 bold=True, align="C", color="548235", size=10, border="TB",
+                 border_color="385723", border_width=1.6,
+                 label="Atividade do registro fotográfico")
+        for col, photo in enumerate(photos):
+            x = t.left + col * (photo_w + gap)
+            page.pictures.append(Picture(x, y + caption_h + title_gap, photo_w, image_h,
+                                         self.repository.resolve_photo(photo)))
+        return y + caption_h + title_gap + image_h + row_gap
+
+    def photo_pages(self, second: PagePlan) -> list[PagePlan]:
+        t = self.t
+        pages = [second]
+        current = second
+        self.band(current, t.photos_y, "RELATÓRIO FOTOGRÁFICO")
+        y = t.photos_y + t.title_h + 10
+        for title, photos in self.photo_rows():
+            caption_h, image_h = self.photo_row_dimensions(title)
+            if y + caption_h + 6 + image_h > t.footer_y - 10:
+                current = PagePlan("Fotos")
+                pages.append(current)
+                self.band(current, 38, "RELATÓRIO FOTOGRÁFICO")
+                y = 66
+            y = self.draw_photo_row(current, title, photos, y)
         for page in pages:
             self.signature(page)
         return pages
@@ -378,7 +397,7 @@ class LayoutEngine:
                 self.signature(page)
         return pages
 
-    def fill_print_area(self, page: PagePlan) -> None:
+    def fill_print_area(self, page: PagePlan, *, continuous: bool = False) -> None:
         """Ampliar o conteúdo para as quatro margens, sem mudar o papel A4.
 
         A paginação ainda usa as coordenadas medidas dos modelos. Só depois
@@ -390,7 +409,8 @@ class LayoutEngine:
         top = min(item.y for item in items)
         bottom = max(item.y + item.h for item in items)
         scale_x = (PAGE_WIDTH - 2 * PRINT_MARGIN) / self.t.width
-        scale_y = (PAGE_HEIGHT - 2 * PRINT_MARGIN) / (bottom - top)
+        # Excel contínuo cresce na vertical; somente o PDF deve caber em uma folha.
+        scale_y = scale_x if continuous else (PAGE_HEIGHT - 2 * PRINT_MARGIN) / (bottom - top)
         # A fonte cresce proporcionalmente, nunca esticada em apenas um eixo.
         font_scale = min(scale_x, scale_y)
         for item in items:

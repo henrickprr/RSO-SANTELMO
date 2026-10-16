@@ -9,6 +9,7 @@ from PIL import Image
 import pytest
 
 from rso.excel_generator import ExcelGenerator
+from rso.excel_layout import ExcelLayoutEngine
 from rso.layout import LayoutEngine
 from rso.models import Photo, Report, ResourceRow, ValidationError
 from rso.pdf_generator import PDFGenerator
@@ -208,10 +209,10 @@ def test_xlsx_merges_images_wrap_numeric_values_and_literal_formula(repo, tmp_pa
     target = ExcelGenerator(repo).generate(report, tmp_path / "real.xlsx")
     wb = load_workbook(target)
     pages = [s for s in wb if s.sheet_state == "visible"]
-    assert len(pages) == 4 and wb["_Dados"].sheet_state == "hidden"
+    assert len(pages) == 1 and pages[0].title == "RSO" and wb["_Dados"].sheet_state == "hidden"
     assert sum(len(s._images) for s in pages) >= len(report.photos)
     assert all(s.merged_cells.ranges for s in pages)
-    assert all(s.page_setup.fitToWidth == 1 and s.page_setup.fitToHeight == 1 for s in pages)
+    assert all(s.page_setup.fitToWidth == 1 and s.page_setup.fitToHeight == 0 for s in pages)
     text_cells = [c for s in pages for row in s for c in row if c.value is not None]
     assert any(c.data_type == "n" and c.value == 3 for c in text_cells)
     formula = next(c for c in text_cells if "HYPERLINK" in str(c.value))
@@ -229,6 +230,51 @@ def test_gray_theme_uses_white_text(repo, report):
     plan = LayoutEngine(report, repo).build()
     title = next(b for b in plan[0].boxes if b.text == "RELATÓRIO SEMANAL DE OBRA (RSO)")
     assert title.fill == "34383D" and title.color == "FFFFFF"
+
+
+@pytest.mark.parametrize("template", ["compact", "wide", "sintra"])
+@pytest.mark.parametrize("columns", [1, 2])
+def test_continuous_excel_keeps_all_sections_and_photos_in_order(repo, template, columns):
+    report = load_demo(repo)
+    report.project_key, report.tab_name = "", "Geometria Excel"
+    report.template, report.photo_columns = template, columns
+    sheet = ExcelLayoutEngine(report, repo).build_sheet()
+    photos = [p for p in sheet.pictures if not p.decorative]
+    assert [p.path for p in photos] == [repo.resolve_photo(p) for p in report.photos]
+    title = [b for b in sheet.boxes if b.text == "RELATÓRIO SEMANAL DE OBRA (RSO)"]
+    signature = [b for b in sheet.boxes if b.text.startswith("ENGENHEIRO RESPONSÁVEL:")]
+    assert len(title) == len(signature) == 1
+    days = [next(b for b in sheet.boxes if b.text == day) for day in ("SEG", "TER", "QUA", "QUI", "SEX")]
+    assert all(a.y < b.y for a, b in zip(days, days[1:]))
+    assert days[-1].y + days[-1].h < photos[0].y
+    assert max(p.y + p.h for p in photos) < signature[0].y
+    assert signature[0].y > PAGE_HEIGHT  # A altura não é comprimida numa folha A4.
+    items = [*sheet.boxes, *photos]
+    for i, a in enumerate(items):
+        for b in items[i + 1:]:
+            intersection_w = min(a.x + a.w, b.x + b.w) - max(a.x, b.x)
+            intersection_h = min(a.y + a.h, b.y + b.h) - max(a.y, b.y)
+            assert min(intersection_w, intersection_h) <= .01, (a, b)
+
+
+def test_excel_ignores_pdf_page_breaks_and_preserves_overflow(repo, tmp_path):
+    report = load_demo(repo)
+    report.activities[4] = "Serviço detalhado. " * 600 + "FINALATIVIDADESEXTA"
+    report.notes = "Observações da obra. " * 600 + "FINALOBSERVACOES"
+    pdf_plan = LayoutEngine(report, repo).build()
+    assert len(pdf_plan) > 4
+    path = ExcelGenerator(repo).generate(report, tmp_path / "continuous.xlsx", pdf_plan)
+    wb = load_workbook(path)
+    assert [s.title for s in wb if s.sheet_state == "visible"] == ["RSO"]
+    ws = wb["RSO"]
+    values = [str(c.value) for row in ws for c in row if c.value is not None]
+    assert values.count("RELATÓRIO SEMANAL DE OBRA (RSO)") == 1
+    assert sum(v.startswith("ENGENHEIRO RESPONSÁVEL:") for v in values) == 1
+    assert "FINALATIVIDADESEXTA" in "\n".join(values)
+    assert "FINALOBSERVACOES" in "\n".join(values)
+    assert not ws.row_breaks.brk and not ws.col_breaks.brk
+    assert ws.page_setup.fitToWidth == 1 and ws.page_setup.fitToHeight == 0
+    assert max(row.height for row in ws.row_dimensions.values()) <= 409
 
 
 def test_report_snapshot_is_detached(report):
