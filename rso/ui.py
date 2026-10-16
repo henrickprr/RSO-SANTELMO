@@ -51,6 +51,8 @@ class ObraTab(ft.Column):
         self.pending_uploads: dict[str, tuple[Path, None]] = {}
         self.finishing_uploads: set[str] = set()
         self.importing_photos = False
+        self._photo_selection_handled = False
+        self._photo_import_lock = asyncio.Lock()
         self.pending_export: Path | None = None
         self.busy = False
         self.image_picker = ft.FilePicker(on_result=self.on_photos_selected,
@@ -348,9 +350,22 @@ class ObraTab(ft.Column):
     async def pick_photos(self, event):
         if self.importing_photos or self.pending_uploads:
             return
-        self.image_picker.pick_files(dialog_title="Fotos gerais da semana", allow_multiple=True,
-                                     file_type=ft.FilePickerFileType.CUSTOM,
-                                     allowed_extensions=["jpg", "jpeg", "png", "webp"])
+        # O navegador fornece streams que só podem ser lidos uma vez. Um seletor
+        # novo por lote evita reutilizar streams/comandos antigos após erro ou retry.
+        previous = self.image_picker
+        self.image_picker = ft.FilePicker(on_result=self.on_photos_selected,
+                                          on_upload=self.on_photo_uploaded)
+        self.host_page.overlay[self.host_page.overlay.index(previous)] = self.image_picker
+        self._photo_selection_handled = False
+        self.set_importing(True)  # Também impede abrir dois seletores ao mesmo tempo.
+        try:
+            self.image_picker.pick_files(dialog_title="Fotos gerais da semana", allow_multiple=True,
+                                         file_type=ft.FilePickerFileType.CUSTOM,
+                                         allowed_extensions=["jpg", "jpeg", "png", "webp"])
+        except Exception as exc:
+            self._photo_selection_handled = True
+            self.set_importing(False)
+            self.toast(f"Não foi possível abrir o seletor de fotos: {exc}", True)
 
     def set_importing(self, value: bool) -> None:
         self.importing_photos = value
@@ -358,34 +373,45 @@ class ObraTab(ft.Column):
         self.host_page.update()
 
     async def on_photos_selected(self, event: ft.FilePickerResultEvent):
+        # Eventos atrasados de seletores substituídos e resultados repetidos não
+        # podem iniciar um segundo envio do mesmo stream.
+        if getattr(event, "control", self.image_picker) is not self.image_picker:
+            return
+        if self._photo_selection_handled or self.pending_uploads:
+            return
+        self._photo_selection_handled = True
         if not event.files:
+            self.set_importing(False)
             return
         day = None  # Fotografias gerais da semana, sem vínculo com um dia.
         self.set_importing(True)
         if self.host_page.web:
-            uploads = []
-            for file in event.files:
-                if file.size > 30 * 1024 * 1024:
-                    self.toast(f"{file.name}: limite de 30 MB excedido.", True)
-                    continue
-                if file.name in self.pending_uploads:
-                    self.toast(f"Selecione arquivos com nomes diferentes: {file.name}", True)
-                    continue
-                relative = f"{self.report.id}/{uuid4().hex}{Path(file.name).suffix.lower()}"
-                self.pending_uploads[file.name] = (self.repository.uploads / relative, day)
-                uploads.append(ft.FilePickerUploadFile(name=file.name, id=file.id,
-                    upload_url=self.host_page.get_upload_url(relative, 600)))
-            if uploads:
-                self.status.value = "Importando fotos…"
-                self.host_page.update()
-                try:
+            try:
+                uploads = []
+                for file in event.files:
+                    if file.size > 30 * 1024 * 1024:
+                        self.toast(f"{file.name}: limite de 30 MB excedido.", True)
+                        continue
+                    if file.name in self.pending_uploads:
+                        self.toast(f"Selecione arquivos com nomes diferentes: {file.name}", True)
+                        continue
+                    relative = f"{self.report.id}/{uuid4().hex}{Path(file.name).suffix.lower()}"
+                    self.pending_uploads[file.name] = (self.repository.uploads / relative, day)
+                    # Flet 0.28.3 remove cada arquivo da lista após enviar, mudando
+                    # os índices dos demais. id=-1 força busca por nome único;
+                    # usar file.id faz lotes com 3+ fotos enviarem o arquivo errado.
+                    uploads.append(ft.FilePickerUploadFile(name=file.name, id=-1,
+                        upload_url=self.host_page.get_upload_url(relative, 600)))
+                if uploads:
+                    self.status.value = "Importando fotos…"
+                    self.host_page.update()
                     self.image_picker.upload(uploads)
-                except Exception as exc:
-                    self.pending_uploads.clear()
+                else:
                     self.set_importing(False)
-                    self.toast(f"Não foi possível iniciar o envio: {exc}", True)
-            else:
+            except Exception as exc:
+                self.pending_uploads.clear()
                 self.set_importing(False)
+                self.toast(f"Não foi possível iniciar o envio: {exc}. Selecione as fotos novamente.", True)
             return
         try:
             for file in event.files:
@@ -405,6 +431,8 @@ class ObraTab(ft.Column):
             self.toast(f"{name}: {exc}", True)
 
     async def on_photo_uploaded(self, event: ft.FilePickerUploadEvent):
+        if getattr(event, "control", self.image_picker) is not self.image_picker:
+            return
         pending = self.pending_uploads.get(event.file_name)
         if pending is None or event.file_name in self.finishing_uploads:
             return
@@ -412,10 +440,17 @@ class ObraTab(ft.Column):
             path, day = pending
             self.finishing_uploads.add(event.file_name)
             try:
-                if event.error:
-                    self.toast(f"Falha no envio de {event.file_name}: {event.error}", True)
-                else:
-                    await self.import_photo(path, event.file_name, day)
+                # Conclusões podem chegar enquanto a imagem anterior está sendo
+                # normalizada. Serializar preserva a ordem das fotos selecionadas.
+                async with self._photo_import_lock:
+                    if event.error:
+                        message = ("O navegador interrompeu a leitura. Clique em Adicionar fotos "
+                                   "e selecione este arquivo novamente."
+                                   if "Stream has already been listened to" in event.error
+                                   else f"{event.error}. Selecione este arquivo novamente.")
+                        self.toast(f"Falha no envio de {event.file_name}: {message}", True)
+                    else:
+                        await self.import_photo(path, event.file_name, day)
             finally:
                 path.unlink(missing_ok=True)
                 self.pending_uploads.pop(event.file_name, None)

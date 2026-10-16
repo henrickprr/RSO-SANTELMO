@@ -1,7 +1,17 @@
-# Validação — versão 1.5.1
+# Validação — versão 1.5.2
 
-- 94 testes automatizados aprovados, incluindo três novos testes de impressão.
+- 101 testes automatizados aprovados, incluindo sete novos testes de upload.
   Lint sem ocorrências.
+- Falha anterior reproduzida em Chromium: lote de oito fotos importava apenas três
+  e deixava o botão bloqueado. A seleção por índices do Flet mudava após cada remoção.
+- Chromium nesta versão: oito fotos enviadas em lote, com nomes, ordem e conteúdo
+  conferidos; seleção repetida de `QD.jpeg` em lotes novos e em obras diferentes.
+- Falha HTTP 503 simulada: nenhuma foto incompleta adicionada; nova seleção envia
+  corretamente e libera o botão. Arquivos temporários removidos ao concluir.
+- Testes automatizados de stream já consumido, resultados repetidos, eventos de
+  seletores antigos, cancelamento, falha na URL, ordem e isolamento entre obras.
+  O erro literal de stream foi simulado no teste; a falha de lote foi reproduzida no navegador.
+- PDF e XLSX gerados pela interface após os uploads corrigidos.
 - Margens de 7 mm nos quatro lados conferidas nos três modelos de geometria,
   incluindo páginas de fotos e complementos. Sem sobreposição da assinatura.
 - PDF de exemplo inspecionado visualmente; textos, desenhos e imagens extraídos

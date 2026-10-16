@@ -1,4 +1,4 @@
-# RSO Santelmo — versão 1.5.1 — Render Free
+# RSO Santelmo — versão 1.5.2 — Render Free
 
 Aplicativo Python/Flet para registrar e exportar Relatórios Semanais de Obra.
 Inclui quatro abas iniciais, criação de relatórios por obra, tabelas editáveis, cinco dias
@@ -101,6 +101,12 @@ editáveis. Os valores antigos do cadastro são substituídos pelos dados dos mo
 Faça backup antes de atualizar. Rascunhos de obras desconhecidas continuam legíveis.
 
 ## Fotografias gerais da semana
+
+O envio aceita vários arquivos por seleção. A versão 1.5.2 corrige a identificação
+dos arquivos em lotes com três ou mais fotos e abre um seletor novo para cada lote,
+evitando reutilizar uma leitura já consumida pelo navegador. Se houver falha de
+conexão, clique novamente em **Adicionar fotos** e selecione os arquivos que falharam.
+As fotos já importadas permanecem no relatório. Use nomes diferentes dentro do mesmo lote.
 
 As fotos **não são associadas a dias**. Não há seletor de dia, data ou cabeçalho
 Segunda/Terça no relatório fotográfico. A regra anterior de 2 ou 4 fotos por dia
