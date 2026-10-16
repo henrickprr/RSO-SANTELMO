@@ -62,7 +62,8 @@ def test_activity_titles_are_above_photos_without_day_or_date(data, tmp_path):
     plan = LayoutEngine(report, repo).build()
     for page in plan:
         for picture in [p for p in page.pictures if not p.decorative]:
-            headings = [b for b in page.boxes if abs(b.y + b.h - picture.y) < .01]
+            headings = [b for b in page.boxes
+                        if b.border == "TB" and 5 < picture.y - (b.y + b.h) < 10]
             assert headings
             assert any(b.text in {p.caption for p in report.photos} for b in headings)
         assert not any(day.upper() in b.text for day in DAYS for b in page.boxes)

@@ -1,10 +1,13 @@
-"""Medidas extraídas dos quatro PDFs fornecidos. Unidade: ponto (1/72 polegada)."""
+"""Medidas-base dos quatro PDFs e margem final. Unidade: ponto (1/72 polegada)."""
 
 from dataclasses import dataclass
 from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 PAGE_WIDTH, PAGE_HEIGHT = 595.2, 841.8
+# Margem final nas quatro bordas. O mapa original é ampliado para esta área
+# depois da paginação, igualmente no PDF e no XLSX. Unidade: pontos.
+PRINT_MARGIN = 7 * 72 / 25.4  # 7 mm = aproximadamente 19,84 pt
 COMPANY = (
     "SANTELMO ENGENHARIA LTDA",
     "CNPJ: 26.913.287/0001-34",
@@ -40,7 +43,8 @@ class Template:
         return self.right - self.left
 
 
-# Para reposicionar o modelo, altere somente estas coordenadas. O Excel usa o mesmo mapa.
+# Coordenadas-base para a paginação. A margem final é PRINT_MARGIN, acima.
+# O Excel e o PDF usam o mesmo mapa ampliado por LayoutEngine.fill_print_area().
 COMPACT = Template(39, 556.2, 162.225, 17.225, 247.25, 325.88, 13.6,
                    577.55, 642.15, 51.5, 60.9, 202.65, 318.27, 714,
                    9.4, (394.9, 90.204, 158.81, 68.546), (429.64, 78, 126.18, 161.91))

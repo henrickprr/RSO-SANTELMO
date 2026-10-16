@@ -176,6 +176,8 @@ class ObraTab(ft.Column):
         return ft.Column([
             ft.Text("Feriados na semana?", weight=ft.FontWeight.W_600, color=INK),
             ft.Row([self.holiday_yes, self.holiday_no], spacing=24),
+            ft.Text("A opção selecionada também aparece marcada no PDF e no Excel.",
+                    size=12, color=MUTED),
         ], spacing=4)
 
     def set_holidays(self, value: bool) -> None:
@@ -217,7 +219,7 @@ class ObraTab(ft.Column):
                                                on_click=self.pick_photos)
         photos = [self.field("materials", "Chegada de materiais", multiline=True,
                              hint="Um material por linha. Ex.: 50 sacos de cimento • 30/09"),
-                  ft.Text("Fotos gerais da semana. O nome da atividade aparece acima das fotos.",
+                  ft.Text("Fotos ampliadas no relatório, com a atividade em verde entre duas linhas.",
                           color=GREEN, size=13), self.upload_button,
                   ft.Text("JPG, PNG ou WebP • até 30 MB por foto • rascunhos podem ficar incompletos",
                           size=12, color=MUTED), self.photo_body]

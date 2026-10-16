@@ -13,7 +13,9 @@ from pathlib import Path
 from fpdf import FPDF
 
 from .models import DAY_SHORT, Report, ValidationError, parse_date, quantity
-from .settings import ASSETS, COMPANY, EMAIL, PAGE_HEIGHT, PAGE_WIDTH, PALETTES, TEMPLATES
+from .settings import (
+    ASSETS, COMPANY, EMAIL, PAGE_HEIGHT, PAGE_WIDTH, PALETTES, PRINT_MARGIN, TEMPLATES,
+)
 from .storage import DraftRepository
 
 
@@ -41,10 +43,12 @@ class Box:
     align: str = "L"
     fill: str | None = None
     color: str = "000000"
-    border: bool = True
+    border: bool | str = True
     lines: list[str] = field(default_factory=list)
     numeric: int | float | None = None
     progress: float | None = None
+    border_color: str = "737373"
+    border_width: float = .45
 
 
 @dataclass
@@ -58,10 +62,26 @@ class Picture:
 
 
 @dataclass
+class Checkbox:
+    """Caixa gráfica de impressão; o estado vem do mesmo booleano da interface."""
+
+    x: float
+    y: float
+    size: float
+    checked: bool
+    color: str = "548235"
+
+    def tick_points(self) -> list[tuple[float, float]]:
+        return [(self.x + x * self.size, self.y + y * self.size)
+                for x, y in ((.20, .51), (.43, .75), (.81, .24))]
+
+
+@dataclass
 class PagePlan:
     title: str
     boxes: list[Box] = field(default_factory=list)
     pictures: list[Picture] = field(default_factory=list)
+    checkboxes: list[Checkbox] = field(default_factory=list)
 
 
 class Typography:
@@ -118,8 +138,9 @@ class LayoutEngine:
     def box(self, page: PagePlan, x: float, y: float, w: float, h: float,
             text: str = "", *, label: str = "Informação", size: float | None = None,
             bold: bool = False, align: str = "L", fill: str | None = None,
-            color: str = "000000", border: bool = True,
-            numeric: int | float | None = None) -> Box:
+            color: str = "000000", border: bool | str = True,
+            numeric: int | float | None = None,
+            border_color: str = "737373", border_width: float = .45) -> Box:
         font_size = size or self.t.font_size
         # Área interna de 3 pt em cada lateral. Reduzir só até 8 pt para legibilidade.
         while True:
@@ -138,7 +159,7 @@ class LayoutEngine:
                 break
             font_size = max(8, font_size - 0.25)
         item = Box(x, y, w, h, str(text), font_size, bold, align, fill, color, border,
-                   lines, numeric)
+                   lines, numeric, border_color=border_color, border_width=border_width)
         page.boxes.append(item)
         return item
 
@@ -189,7 +210,10 @@ class LayoutEngine:
                                              y + i * 24 + 1, 22, 22, ASSETS / icon, True))
         for i, (label, checked) in enumerate((("Sim", r.holidays), ("Não", not r.holidays))):
             self.box(page, t.left + widths[0], y + i * 24, widths[1], 24,
-                     f"{label}       [{'X' if checked else ' '}]", bold=True)
+                     label, bold=True)
+            # Caixa de 12 pt, alinhada às duas opções. Não depende de glifos da fonte.
+            page.checkboxes.append(Checkbox(t.left + widths[0] + 42,
+                                            y + i * 24 + 6, 12, checked))
         progress = self.box(page, t.left + widths[0] + widths[1], y + 13, widths[2], 22,
                             f"{r.progress:g}%", bold=True, align="C", label="Evolução")
         progress.progress = r.progress
@@ -300,9 +324,11 @@ class LayoutEngine:
         self.band(current, t.photos_y, "RELATÓRIO FOTOGRÁFICO")
         y = t.photos_y + t.title_h + 10
         columns = r.photo_columns
-        gap, caption_h = 12, 24
+        # Medidas em pontos (72 pt = 1 polegada). Ajuste estes valores para mudar
+        # o tamanho das fotos; a paginação considera também título e assinatura.
+        gap, title_gap, row_gap = 8, 6, 14
         photo_w = (t.width - (columns - 1) * gap) / columns
-        image_h = 144 if columns == 2 else 225
+        image_h = 210 if columns == 2 else 300
         # Agrupar fotos consecutivas da mesma atividade. O título vem ACIMA
         # de uma ou duas imagens, como nos anexos, sem rótulo de dia/data.
         groups = []
@@ -314,20 +340,21 @@ class LayoutEngine:
                 groups.append((title, [photo]))
         for title, group in groups:
             for offset in range(0, len(group), columns):
-                caption_h = min(60, max(24, len(self.type.wrap(title, t.width - 8, 9, True)) * 11 + 6))
-                if y + caption_h + image_h > t.footer_y - 10:
+                caption_h = min(70, max(28, len(self.type.wrap(title, t.width - 8, 10, True)) * 12 + 10))
+                if y + caption_h + title_gap + image_h > t.footer_y - 10:
                     current = PagePlan("Fotos")
                     pages.append(current)
                     self.band(current, 38, "RELATÓRIO FOTOGRÁFICO")
                     y = 66
                 self.box(current, t.left, y, t.width, caption_h, title,
-                         bold=True, align="C", color="548235", size=9, border=False,
+                         bold=True, align="C", color="548235", size=10, border="TB",
+                         border_color="385723", border_width=1.6,
                          label="Atividade do registro fotográfico")
                 for col, photo in enumerate(group[offset:offset + columns]):
                     x = t.left + col * (photo_w + gap)
-                    current.pictures.append(Picture(x, y + caption_h, photo_w, image_h,
+                    current.pictures.append(Picture(x, y + caption_h + title_gap, photo_w, image_h,
                                                    self.repository.resolve_photo(photo)))
-                y += caption_h + image_h + 8
+                y += caption_h + title_gap + image_h + row_gap
         for page in pages:
             self.signature(page)
         return pages
@@ -351,6 +378,35 @@ class LayoutEngine:
                 self.signature(page)
         return pages
 
+    def fill_print_area(self, page: PagePlan) -> None:
+        """Ampliar o conteúdo para as quatro margens, sem mudar o papel A4.
+
+        A paginação ainda usa as coordenadas medidas dos modelos. Só depois
+        todos os retângulos recebem a mesma transformação, preservando os
+        alinhamentos, as distâncias relativas e a separação da assinatura.
+        Os geradores contêm as imagens nesses retângulos sem distorcer a foto.
+        """
+        items = [*page.boxes, *page.pictures]
+        top = min(item.y for item in items)
+        bottom = max(item.y + item.h for item in items)
+        scale_x = (PAGE_WIDTH - 2 * PRINT_MARGIN) / self.t.width
+        scale_y = (PAGE_HEIGHT - 2 * PRINT_MARGIN) / (bottom - top)
+        # A fonte cresce proporcionalmente, nunca esticada em apenas um eixo.
+        font_scale = min(scale_x, scale_y)
+        for item in items:
+            item.x = PRINT_MARGIN + (item.x - self.t.left) * scale_x
+            item.y = PRINT_MARGIN + (item.y - top) * scale_y
+            item.w *= scale_x
+            item.h *= scale_y
+        for box in page.boxes:
+            box.size *= font_scale
+        for checkbox in page.checkboxes:
+            # Manter caixinhas quadradas de 12 pt, centradas na linha ampliada.
+            center_x = PRINT_MARGIN + (checkbox.x + checkbox.size / 2 - self.t.left) * scale_x
+            center_y = PRINT_MARGIN + (checkbox.y + checkbox.size / 2 - top) * scale_y
+            checkbox.x = center_x - checkbox.size / 2
+            checkbox.y = center_y - checkbox.size / 2
+
     def build(self) -> list[PagePlan]:
         first, second = PagePlan("RSO"), PagePlan("RSO e fotos")
         self.header(first)
@@ -362,5 +418,8 @@ class LayoutEngine:
         photo_pages = self.photo_pages(second)
         extra = self.appendices()
         # Complementos são identificados; fotos de continuação ficam nas páginas finais.
-        return [first, photo_pages[0], *extra, *photo_pages[1:]]
+        pages = [first, photo_pages[0], *extra, *photo_pages[1:]]
+        for page in pages:
+            self.fill_print_area(page)
+        return pages
 

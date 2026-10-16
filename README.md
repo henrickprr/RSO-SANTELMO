@@ -1,4 +1,4 @@
-# RSO Santelmo — versão 1.4.1 — Render Free
+# RSO Santelmo — versão 1.5.1 — Render Free
 
 Aplicativo Python/Flet para registrar e exportar Relatórios Semanais de Obra.
 Inclui quatro abas iniciais, criação de relatórios por obra, tabelas editáveis, cinco dias
@@ -87,7 +87,8 @@ campo Obra na exportação; textos longos usam o complemento, sem serem descarta
 1. Escolha a aba da obra ou clique **Novo relatório** e selecione uma obra cadastrada.
 2. Preencha período, tempo, feriados e evolução. Em **Feriados na semana?**, marque
    **Sim** ou **Não**; apenas uma caixa permanece selecionada. A resposta é salva
-   automaticamente e utilizada no PDF/XLSX. Os dados cadastrais já vêm preenchidos.
+   automaticamente. No PDF e no XLSX, as duas opções têm caixinhas desenhadas,
+   com marca de seleção somente na resposta escolhida. Os dados cadastrais já vêm preenchidos.
 3. Ajuste equipes, equipamentos, atividades diárias e chegada de materiais.
 4. Adicione as fotos gerais da semana e escreva a **atividade da foto**.
 5. Exporte PDF/XLSX. No Render Free, baixe também um backup antes de sair.
@@ -106,11 +107,18 @@ Segunda/Terça no relatório fotográfico. A regra anterior de 2 ou 4 fotos por 
 foi removida a pedido do usuário. São aceitas quantidades pares ou ímpares, e os
 rascunhos/relatórios também podem ser gerados sem fotos.
 
-O nome da atividade aparece **acima das imagens**, em verde. Fotos consecutivas
+O nome da atividade aparece **acima das imagens**, em verde e negrito, entre uma
+linha superior e outra inferior mais espessas, em verde escuro. Fotos consecutivas
 com o mesmo texto de atividade formam um grupo com título comum; use as setas para
 ordená-las. A grade usa uma ou duas colunas e preserva as proporções das imagens.
 O título é repetido acima de cada linha de fotos do grupo, inclusive nas continuações.
 As atividades escritas no corpo do relatório continuam organizadas por dia da semana.
+
+As fotos usam áreas-base maiores: **210 pt de altura em duas colunas** (antes 144 pt)
+ou **300 pt em uma coluna** (antes 225 pt), ampliadas no ajuste às margens de 7 mm.
+As proporções originais são preservadas,
+sem cortar nem esticar. A ampliação efetiva depende da orientação de cada foto.
+O aplicativo abre páginas adicionais para manter o espaço da assinatura.
 
 Fotos de rascunhos antigos mantêm caminhos, títulos e ordem, sem exigir a retirada
 manual do antigo campo `day`; ele é ignorado na interface e na exportação. O JSON
@@ -161,7 +169,8 @@ converta para JPG/PNG/WebP antes da importação.
 
 ## Modelo de exportação e fidelidade
 
-Os quatro PDFs fornecidos estão em `references/`. Foram medidos diretamente:
+Os quatro PDFs fornecidos estão em `references/`. Estas coordenadas originais
+foram medidas diretamente e continuam como base para organizar e paginar o relatório:
 
 | Modelo | Margem esquerda | Margem direita (coordenada) | Título, Y | Materiais, Y | Fotos, Y |
 |---|---:|---:|---:|---:|---:|
@@ -172,6 +181,12 @@ Os quatro PDFs fornecidos estão em `references/`. Foram medidos diretamente:
 O papel mede 595,2 × 841,8 pontos, como os anexos. Segunda e terça ocupam a primeira
 página; quarta a sexta, materiais e início das fotos, a segunda. As fotos seguintes
 ocupam páginas adicionais, sempre respeitando o espaço da assinatura.
+
+Na versão 1.5.1, o conteúdo de **todas as páginas é ampliado para margens de 7 mm
+nos quatro lados**, aproveitando mais a folha. Tabelas, textos, títulos e rodapé
+são reposicionados juntos; as fotos e os logotipos preservam suas proporções.
+O PDF e o Excel recebem o mesmo mapa final. No Excel, as margens já estão nas
+células de contorno; as configurações de impressão não acrescentam outra margem.
 
 O logotipo, a marca d'água, os ícones de sol e os subsets de fontes foram extraídos
 dos anexos, preservando transparência. O verde é `#548235`. Os dados fixos da empresa
@@ -238,13 +253,17 @@ rso/excel_generator.py    ExcelGenerator, pandas, openpyxl e imagens
 assets/                   Identidade visual e fontes
 examples/                 Dados, fotos e arquivos gerados da Casa Bosque
 tools/demo.py             Importação/exportação do exemplo
-tests/                    Testes de relatórios, fotos diárias e publicação
+tests/                    Testes de relatórios, fotos semanais, impressão e publicação
 .github/workflows/ci.yml   Validação automática no GitHub
 ```
 
-Para alterar medidas, comece por `Template` e `TEMPLATES` em `settings.py`.
+Para alterar as quatro margens, ajuste `PRINT_MARGIN` em `rso/settings.py`.
+`LayoutEngine.fill_print_area()` aplica esse limite a todas as páginas, depois da
+paginação. `Template` e `TEMPLATES` conservam as medidas-base do modelo original.
 As larguras dos três blocos de mão de obra estão em `LayoutEngine.resources()`;
 o grid e os espaços reservados para fotos estão em `LayoutEngine.photo_pages()`.
+Os títulos usam `border="TB"`, `border_width=1.6` e `border_color="385723"`;
+esses valores controlam as linhas superior/inferior nos dois exportadores.
 O mapa de retângulos produzido por `LayoutEngine` é consumido pelos dois geradores.
 As coordenadas estão em **pontos**, com origem superior esquerda: 1 mm = 72/25,4 pt.
 
@@ -256,7 +275,7 @@ sem usar `ft.UserControl`, removido da API desta versão do Flet.
 O exemplo usa os dados e as **oito fotos originais** do PDF Casa Bosque,
 de 28/09/2026 a 02/10/2026, sem duplicações para completar pares por dia.
 As atividades aparecem acima dos grupos de imagens. Os arquivos em
-`examples/gerados/RSO-Demonstracao.pdf` e `RSO-Demonstracao.xlsx` têm três
+`examples/gerados/RSO-Demonstracao.pdf` e `RSO-Demonstracao.xlsx` têm quatro
 páginas/folhas de impressão.
 
 ```bash

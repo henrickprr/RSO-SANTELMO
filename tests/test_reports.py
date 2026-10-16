@@ -12,7 +12,7 @@ from rso.excel_generator import ExcelGenerator
 from rso.layout import LayoutEngine
 from rso.models import Photo, Report, ResourceRow, ValidationError
 from rso.pdf_generator import PDFGenerator
-from rso.settings import PAGE_HEIGHT, PAGE_WIDTH
+from rso.settings import PAGE_HEIGHT, PAGE_WIDTH, PRINT_MARGIN
 from rso.storage import DraftRepository
 from tools.demo import load_demo
 
@@ -150,6 +150,11 @@ def test_photos_and_tables_never_overlap_signature_or_other_cells(repo, template
     engine = LayoutEngine(report, repo)
     plan = engine.build()
     for page in plan:
+        items = [*page.boxes, *page.pictures]
+        assert min(item.x for item in items) == pytest.approx(PRINT_MARGIN)
+        assert max(item.x + item.w for item in items) == pytest.approx(PAGE_WIDTH - PRINT_MARGIN)
+        assert min(item.y for item in items) == pytest.approx(PRINT_MARGIN)
+        assert max(item.y + item.h for item in items) == pytest.approx(PAGE_HEIGHT - PRINT_MARGIN)
         for b in page.boxes:
             assert b.x >= 0 and b.y >= 0
             assert b.x + b.w <= PAGE_WIDTH + .01
@@ -162,14 +167,15 @@ def test_photos_and_tables_never_overlap_signature_or_other_cells(repo, template
                 assert min(intersection_w, intersection_h) <= .01, (page.title, a.text, b.text)
         for picture in page.pictures:
             if not picture.decorative:
-                assert picture.y + picture.h <= engine.t.footer_y - 10
+                signature = next(b for b in page.boxes if b.text.startswith("ENGENHEIRO RESPONSÁVEL:"))
+                assert picture.y + picture.h <= signature.y - 10
 
 
 def test_pdf_real_example_contains_every_day_photo_and_signature(repo, tmp_path):
     report = load_demo(repo)
     target = PDFGenerator(repo).generate(report, tmp_path / "real.pdf")
     with fitz.open(target) as doc:
-        assert len(doc) == 3
+        assert len(doc) == 4
         assert doc[0].rect.width == pytest.approx(PAGE_WIDTH, abs=.02)
         assert "SEG" in doc[0].get_text() and "TER" in doc[0].get_text()
         assert all(day in doc[1].get_text() for day in ("QUA", "QUI", "SEX"))
@@ -202,7 +208,7 @@ def test_xlsx_merges_images_wrap_numeric_values_and_literal_formula(repo, tmp_pa
     target = ExcelGenerator(repo).generate(report, tmp_path / "real.xlsx")
     wb = load_workbook(target)
     pages = [s for s in wb if s.sheet_state == "visible"]
-    assert len(pages) == 3 and wb["_Dados"].sheet_state == "hidden"
+    assert len(pages) == 4 and wb["_Dados"].sheet_state == "hidden"
     assert sum(len(s._images) for s in pages) >= len(report.photos)
     assert all(s.merged_cells.ranges for s in pages)
     assert all(s.page_setup.fitToWidth == 1 and s.page_setup.fitToHeight == 1 for s in pages)
