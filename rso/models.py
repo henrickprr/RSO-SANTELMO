@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from uuid import UUID, uuid4
 
-from .projects import apply_project
+from .projects import ProjectProfile, apply_project
 
 DAYS = ("Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira")
 DAY_SHORT = ("SEG", "TER", "QUA", "QUI", "SEX")
@@ -58,6 +58,7 @@ class Photo:
 class Report:
     id: str = field(default_factory=lambda: uuid4().hex)
     project_key: str = ""
+    project_profile: ProjectProfile | None = None
     address: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     tab_name: str = "Nova obra"
@@ -89,10 +90,12 @@ class Report:
     photo_columns: int = 2
 
     @classmethod
-    def new(cls, name: str, template: str = "compact") -> Report:
+    def new(cls, name: str, template: str = "compact", *,
+            profile: ProjectProfile | None = None) -> Report:
         monday = date.today() - timedelta(days=date.today().weekday())
         report = cls(
-            tab_name=name, obra=f"EXECUÇÃO DE EDIFICAÇÃO RESIDENCIAL UNIFAMILIAR - {name.upper()}",
+            tab_name=profile.name if profile else name, project_profile=profile,
+            obra=f"EXECUÇÃO DE EDIFICAÇÃO RESIDENCIAL UNIFAMILIAR - {name.upper()}",
             start=monday.strftime("%d/%m/%Y"),
             end=(monday + timedelta(days=4)).strftime("%d/%m/%Y"), template=template,
         )
@@ -168,6 +171,8 @@ class Report:
             raise ValidationError("Rascunho inválido: objeto esperado.")
         allowed = {f.name for f in fields(cls)}
         values = {k: v for k, v in data.items() if k in allowed}
+        if values.get("project_profile") is not None:
+            values["project_profile"] = ProjectProfile.from_dict(values["project_profile"])
         for key in ("employees", "contractors", "equipment"):
             if key in values:
                 values[key] = [ResourceRow(**r) for r in values[key]]
@@ -180,7 +185,7 @@ class Report:
         for f in fields(cls):
             value = getattr(report, f.name)
             if f.name not in {"employees", "contractors", "equipment", "activities", "photos",
-                              "holidays", "photo_columns"} and not isinstance(value, str):
+                              "holidays", "photo_columns", "project_profile"} and not isinstance(value, str):
                 raise ValidationError(f"Rascunho inválido: campo {f.name}.")
         if not isinstance(report.activities, list) or len(report.activities) != 5:
             raise ValidationError("O rascunho deve conter cinco atividades diárias.")

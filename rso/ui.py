@@ -18,7 +18,8 @@ from .excel_generator import ExcelGenerator
 from .firebase_backend import CloudConflict
 from .models import DAYS, WEATHER, Report, ResourceRow, ValidationError, parse_date
 from .pdf_generator import PDFGenerator
-from .projects import PROJECTS, apply_project, is_fixed_field
+from .project_catalog import ProjectCatalog
+from .projects import COMMON, ProjectProfile, apply_project, is_fixed_field
 from .settings import ASSETS
 from .storage import DraftRepository, atomic_write
 
@@ -298,7 +299,11 @@ class ObraTab(ft.Column):
                 col={"xs": 12, "md": 4}),
         ], run_spacing=16)]
         self.form = ft.Column([
-            self.section("01", "Identificação da obra", "Cadastro fixo por obra; endereços e cliente do Átrio podem ser preenchidos.", metadata, f"{self.report.id}-metadata"),
+            self.section("01", "Identificação da obra",
+                "Dados preenchidos automaticamente a partir do cadastro da obra."
+                if self.report.project_profile else
+                "Cadastro fixo por obra; endereços e cliente do Átrio podem ser preenchidos.",
+                metadata, f"{self.report.id}-metadata"),
             self.section("02", "Mão de obra e equipamentos", "Adicione as equipes e confira os totais calculados.", resources, f"{self.report.id}-resources"),
             self.section("03", "Atividades diárias", "Registre os serviços realizados de segunda a sexta-feira.", activities, f"{self.report.id}-activities"),
             self.section("04", "Materiais e registro fotográfico",
@@ -646,6 +651,7 @@ class ObraTab(ft.Column):
 class RSOApp:
     def __init__(self, page: ft.Page, repository: DraftRepository):
         self.page, self.repository = page, repository
+        self.catalog = ProjectCatalog(repository)
         self.tabs = ft.Tabs(expand=True, selected_index=0, animation_duration=150,
                             indicator_color=GREEN, label_color=GREEN, unselected_label_color=MUTED,
                             divider_color="#DCE2DA", scrollable=True)
@@ -690,7 +696,13 @@ class RSOApp:
                     ft.Column([ft.Text("Relatórios de obra", size=27, weight=ft.FontWeight.W_600, color=INK),
                                ft.Text("A semana documentada. Cada obra no seu lugar.", size=13, color=MUTED)],
                                expand=True, spacing=3),
-                    ft.OutlinedButton("Novo relatório", icon=ft.Icons.ADD, on_click=self.new_report)], spacing=12),
+                    ], spacing=12),
+            ft.Row([
+                ft.FilledButton("Adicionar obra", icon=ft.Icons.ADD_BUSINESS,
+                                on_click=self.add_project, style=ft.ButtonStyle(bgcolor=GREEN)),
+                ft.OutlinedButton("Novo relatório", icon=ft.Icons.NOTE_ADD_OUTLINED,
+                                  on_click=self.new_report),
+            ], spacing=12, wrap=True),
             ft.Row([
                 ft.TextButton("Backup e restauração", icon=ft.Icons.SAVE_ALT,
                               on_click=lambda e: page.launch_url("/backup", web_window_name="_blank")),
@@ -752,16 +764,31 @@ class RSOApp:
         self.tabs.tabs.append(ft.Tab(text=report.tab_name, content=view))
 
     async def new_report(self, event):
+        try:
+            choices = self.catalog.choices()
+        except ValueError as exc:
+            self.page.open(ft.SnackBar(ft.Text(str(exc))))
+            return
         project = ft.Dropdown(label="Obra", value="sintra", width=420,
-            options=[ft.dropdown.Option(key, data["name"]) for key, data in PROJECTS.items()])
+            options=[ft.dropdown.Option(key, name) for key, name in choices.items()])
+        async def select_project(event):
+            project.value = event.data
+        project.on_change = select_project
+        saving = False
 
         async def create(event):
-            profile = PROJECTS[project.value]
-            report = Report.new(profile["name"], profile["template"])
+            nonlocal saving
+            if saving:
+                return
+            saving = True
+            create_button.disabled = True
+            self.page.update()
             try:
-                self.repository.save(report)
-            except OSError as exc:
+                report = await asyncio.to_thread(self.catalog.new_report, project.value)
+            except (OSError, ValueError) as exc:
                 project.error_text = f"Não foi possível salvar: {exc}"
+                saving = False
+                create_button.disabled = False
                 self.page.update()
                 return
             self.add_tab(report)
@@ -769,9 +796,96 @@ class RSOApp:
             self.page.close(dialog)
             self.page.update()
 
+        create_button = ft.FilledButton("Criar relatório", on_click=create)
         dialog = ft.AlertDialog(title=ft.Text("Novo relatório semanal"),
             content=ft.Column([project, ft.Text("Os dados cadastrais são preenchidos automaticamente.")],
                               tight=True, spacing=16),
             actions=[ft.TextButton("Cancelar", on_click=lambda e: self.page.close(dialog)),
-                     ft.FilledButton("Criar relatório", on_click=create)])
+                     create_button])
+        self.page.open(dialog)
+
+    async def add_project(self, event):
+        fields = {}
+
+        def field(name, label, *, value="", optional=False, full=False):
+            async def changed(event):
+                # Manter o valor recebido e limpar a indicação de erro durante a correção.
+                control.value = event.data
+                if control.error_text:
+                    control.error_text = None
+                    control.update()
+
+            control = ft.TextField(label=label if optional else f"{label} *", value=value,
+                col=12 if full else {"xs": 12, "sm": 6}, border_radius=9,
+                max_length=80 if name == "name" else 400,
+                focused_border_color=GREEN, text_size=14,
+                helper_text="Se vazio, será usado o nome da obra." if optional else None,
+                on_change=changed)
+            fields[name] = control
+            return control
+
+        message = ft.Text(color="#A33232", visible=False)
+        saving = False
+
+        async def save(event):
+            nonlocal saving
+            if saving:
+                return
+            missing = False
+            for name, control in fields.items():
+                empty = name != "obra" and not (control.value or "").strip()
+                control.error_text = "Preencha este campo." if empty else None
+                # Flet transforma None em "" ao limpar um erro já exibido.
+                missing |= empty
+            if missing:
+                message.value, message.visible = "Preencha os campos obrigatórios (*).", True
+                self.page.update()
+                return
+            values = {name: (control.value or "").strip() for name, control in fields.items()}
+            values["obra"] = values["obra"] or values["name"].upper()
+            saving = True
+            save_button.disabled = cancel_button.disabled = True
+            self.page.update()
+            try:
+                report = await asyncio.to_thread(self.catalog.register, ProjectProfile(**values))
+            except (OSError, ValueError) as exc:
+                saving = False
+                save_button.disabled = cancel_button.disabled = False
+                message.value, message.visible = str(exc), True
+                self.page.update()
+                return
+            self.add_tab(report)
+            self.tabs.selected_index = len(self.tabs.tabs) - 1
+            self.page.close(dialog)
+            self.views[report.id].toast("Obra cadastrada. O primeiro relatório está pronto para preencher.")
+            self.page.update()
+
+        save_button = ft.FilledButton("Cadastrar obra", icon=ft.Icons.CHECK, on_click=save)
+        cancel_button = ft.TextButton("Cancelar", on_click=lambda e: self.page.close(dialog))
+        dialog = ft.AlertDialog(modal=True, title=ft.Text("Adicionar obra"),
+            content=ft.Container(width=640, height=min(580, max(220, (self.page.height or 900) - 240)),
+                content=ft.Column([
+                    ft.Text("Informe estes dados uma única vez. Eles serão usados no cabeçalho e no "
+                            "rodapé de todos os relatórios desta obra.", size=14, color=MUTED),
+                    ft.Text("Dados da obra", weight=ft.FontWeight.BOLD, color=GREEN),
+                    ft.ResponsiveRow([
+                        field("name", "Nome da obra", full=True),
+                        field("obra", "Descrição do empreendimento", optional=True, full=True),
+                        field("cliente", "Cliente", full=True),
+                        field("address", "Endereço da obra", full=True),
+                        field("responsavel_tecnico", "Responsável técnico",
+                              value=COMMON["responsavel_tecnico"], full=True),
+                    ], spacing=14, run_spacing=14),
+                    ft.Text("Assinatura / rodapé", weight=ft.FontWeight.BOLD, color=GREEN),
+                    ft.ResponsiveRow([
+                        field("engineer", "Engenheiro responsável", value=COMMON["engineer"], full=True),
+                        field("crea", "CREA", value=COMMON["crea"]),
+                        field("art", "ART nº"),
+                        field("permit", "Alvará"),
+                    ], spacing=14, run_spacing=14),
+                    ft.Text("Os dados da Santelmo e a identidade visual seguem o modelo do relatório.",
+                            size=12, color=MUTED),
+                ], spacing=16, scroll=ft.ScrollMode.AUTO)),
+            actions=[ft.Column([message, ft.Row([cancel_button, save_button],
+                alignment=ft.MainAxisAlignment.END, wrap=True)], tight=True)])
         self.page.open(dialog)

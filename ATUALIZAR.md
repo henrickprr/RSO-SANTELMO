@@ -1,4 +1,17 @@
-# Atualização 1.6.0 — salvamento automático no Firebase Spark
+# Atualização 1.7.0 — botão Adicionar obra
+
+Clique **Adicionar obra**, informe os dados do cabeçalho e da assinatura uma única
+vez e clique **Cadastrar obra**. O primeiro relatório abre automaticamente em uma aba.
+Para as próximas semanas, use **Novo relatório** e selecione a obra cadastrada.
+Os dados permanentes são reaproveitados; os campos semanais começam vazios.
+
+O cadastro é incluído no JSON, no backup e na sincronização do Firebase. Não é
+necessário criar coleções ou mudar as regras já usadas pela versão 1.6.0.
+Os campos obrigatórios incluem cliente, endereço, responsáveis, CREA, ART e alvará.
+Os dados da empresa Santelmo seguem fixos. As quatro obras originais são preservadas.
+Envie também o novo arquivo `rso/project_catalog.py`, junto de todo o pacote.
+
+## Firebase Spark — integração preservada
 
 O pacote inclui a integração pronta, mas não contém um projeto ou credencial real.
 Siga **[FIREBASE.md](FIREBASE.md)** para criar o projeto Spark, sem faturamento,
@@ -70,8 +83,9 @@ já confirmados na nuvem; pendências ainda não sincronizadas dependem do cache
 - Rascunhos antigos reconhecidos recebem os dados fixos atuais; campos semanais,
   fotos e as exceções editáveis são preservados.
 
-Para corrigir informações permanentes ou adicionar outro cadastro, altere somente
-`rso/projects.py` e publique novamente. Não preencha endereços inexistentes nos modelos
+Para adicionar outro cadastro, use o botão **Adicionar obra**. Para corrigir as
+informações dos quatro cadastros originais, altere `rso/projects.py` e publique novamente.
+Não preencha endereços inexistentes nos modelos
 com o endereço da empresa: são informações diferentes.
 
 Envie o pacote completo preservando a pasta `rso/`; os arquivos precisam

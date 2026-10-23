@@ -1,12 +1,59 @@
-"""Cadastro fixo por obra, transcrito dos PDFs fornecidos pelo usuário.
+"""Cadastros dos modelos e das obras adicionadas pela interface.
 
-Edite somente este arquivo para corrigir dados cadastrais. Endereços das obras
+Os quatro cadastros iniciais foram transcritos dos PDFs. Endereços das obras
 não constam nos anexos; o endereço do cabeçalho pertence à Santelmo.
 O PDF Átrio contém 'Casa Bella Vista' por engano e deixa o cliente em branco.
 Não copiar o cliente ou os números de outra obra para preencher essas lacunas.
 """
 
+from dataclasses import dataclass, field, fields
 import unicodedata
+from uuid import UUID, uuid4
+
+
+def normalized_name(name: str) -> str:
+    return " ".join(unicodedata.normalize("NFKD", name).encode("ascii", "ignore")
+                    .decode().casefold().split())
+
+
+@dataclass(frozen=True)
+class ProjectProfile:
+    """Cadastro imutável, incluído em cada semana para sobreviver a backup/nuvem.
+
+    O identificador pertence à obra; Report.id pertence somente àquela semana.
+    Não armazenamos o cadastro apenas no disco temporário do Render.
+    """
+
+    name: str
+    obra: str
+    address: str
+    cliente: str
+    responsavel_tecnico: str
+    engineer: str
+    crea: str
+    art: str
+    permit: str
+    template: str = "compact"
+    key: str = field(default_factory=lambda: "custom_" + uuid4().hex)
+
+    def __post_init__(self):
+        for item in fields(self):
+            value = getattr(self, item.name)
+            if not isinstance(value, str) or not value.strip() or len(value) > 400:
+                raise ValueError(f"Preencha um valor válido para {item.name} (até 400 caracteres).")
+            object.__setattr__(self, item.name, value.strip())
+        if len(self.name) > 80 or not normalized_name(self.name):
+            raise ValueError("Informe um nome de obra com até 80 caracteres.")
+        if not self.key.startswith("custom_") or UUID(self.key[7:]).hex != self.key[7:]:
+            raise ValueError("Identificador inválido no cadastro da obra.")
+        if self.template not in ("compact", "wide", "sintra"):
+            raise ValueError("Modelo inválido no cadastro da obra.")
+
+    @classmethod
+    def from_dict(cls, value):
+        if not isinstance(value, dict):
+            raise ValueError("Cadastro de obra inválido no rascunho.")
+        return cls(**value)
 
 COMMON = {
     "responsavel_tecnico": "ENGº DANILO JOSÉ FONSECA LIMA",
@@ -30,6 +77,8 @@ FIXED_FIELDS = frozenset({"tab_name", "obra", "address", "cliente", "responsavel
 
 
 def is_fixed_field(report, name: str) -> bool:
+    if report.project_profile is not None:
+        return name in FIXED_FIELDS
     if name in ("address", "cliente"):
         # O usuário autorizou preencher as lacunas dos modelos na interface.
         return bool(PROJECTS.get(report.project_key, {}).get(name))
@@ -51,6 +100,14 @@ def identify_project(name: str) -> str:
 def apply_project(report) -> None:
     # Identificador estável: mudar rótulo, restaurar backup ou abrir outra aba
     # não permite transportar cliente/ART/alvará de uma obra para outra.
+    if report.project_profile is not None:
+        profile = report.project_profile
+        if not isinstance(profile, ProjectProfile) or report.project_key not in ("", profile.key):
+            raise ValueError("O cadastro pertence a outra obra.")
+        report.project_key = profile.key
+        for name in FIXED_FIELDS - {"tab_name"}:
+            setattr(report, name, getattr(profile, name))
+        return
     key = report.project_key or identify_project(report.tab_name)
     if not key:
         return  # Rascunhos legados de obras desconhecidas continuam legíveis.
@@ -58,10 +115,10 @@ def apply_project(report) -> None:
         raise ValueError("Cadastro de obra não encontrado no código.")
     report.project_key = key
     project = PROJECTS[key]
-    for field, value in COMMON.items():
-        setattr(report, field, value)
-    for field in ("cliente", "art", "permit", "template", "address"):
-        if field in ("cliente", "address") and not project[field]:
+    for name, value in COMMON.items():
+        setattr(report, name, value)
+    for name in ("cliente", "art", "permit", "template", "address"):
+        if name in ("cliente", "address") and not project[name]:
             continue
-        setattr(report, field, project[field])
+        setattr(report, name, project[name])
     report.obra = "EXECUÇÃO DE EDIFICAÇÃO RESIDENCIAL UNIFAMILIAR - " + project["name"].upper()

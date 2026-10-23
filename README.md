@@ -1,7 +1,8 @@
-# RSO Santelmo — versão 1.6.0 — Render Free + Firebase Spark
+# RSO Santelmo — versão 1.7.0 — cadastro de obras + Firebase Spark
 
 Aplicativo Python/Flet para registrar e exportar Relatórios Semanais de Obra.
-Inclui quatro abas iniciais, criação de relatórios por obra, tabelas editáveis, cinco dias
+Inclui quatro abas iniciais, botão **Adicionar obra** com cadastro único,
+criação de relatórios por obra, tabelas editáveis, cinco dias
 de atividades, importação de fotos com legendas, salvamento automático local e
 sincronização opcional de dados/fotos com Firebase Spark,
 PDF com `fpdf2` e XLSX diagramado com `pandas`/`openpyxl`.
@@ -71,7 +72,25 @@ sem conexão depois de instalado.
 
 ## Uso e dados fixos por obra
 
-Os dados cadastrais são preenchidos automaticamente pelo arquivo `rso/projects.py`.
+Use **Adicionar obra** para cadastrar um empreendimento sem alterar o código:
+
+1. Informe nome, cliente, endereço, responsável técnico, engenheiro, CREA, ART e alvará.
+   A descrição do empreendimento é opcional; se vazia, será usado o nome da obra.
+   Os responsáveis e o CREA vêm sugeridos e podem ser corrigidos neste cadastro.
+2. Clique **Cadastrar obra**. O aplicativo salva o cadastro e abre o primeiro relatório.
+3. Na semana seguinte, clique **Novo relatório** e escolha a mesma obra. Cabeçalho e
+   rodapé são preenchidos automaticamente; atividades e fotos começam vazias.
+
+Os dados cadastrados ficam somente para leitura nos relatórios. Os dados da empresa
+Santelmo e a identidade visual continuam seguindo o modelo. Não há edição do cadastro
+permanente na interface desta versão. Obras com nomes equivalentes não são cadastradas
+duas vezes; use Novo relatório para criar outra semana.
+
+O cadastro acompanha os relatórios em JSON, backup e Firebase. Com Firebase configurado,
+aguarde **Salvo no Firebase**; sem ele, o Render Free exige backup para preservar as obras.
+Restaurar um backup recupera também as opções de obras em **Novo relatório**.
+
+As quatro obras iniciais usam os dados do arquivo `rso/projects.py`.
 Os campos ficam visíveis, mas não podem ser digitados. Cabeçalho da Santelmo,
 responsável técnico, engenheiro, CREA, ART, alvará e identificação da obra seguem
 os PDFs. ART e alvará são específicos de cada obra, não compartilhados entre elas.
@@ -108,8 +127,8 @@ campo Obra na exportação; textos longos usam o complemento, sem serem descarta
 6. Na sexta, exporte PDF/XLSX. Use **Novo relatório** para a semana seguinte.
    Sem Firebase, baixe também um backup antes de sair do Render Free.
 
-Para adicionar outra obra ou corrigir informações permanentes, atualize o cadastro
-em `rso/projects.py`. Os novos relatórios começam sem atividades, equipes extras,
+Para adicionar outra obra, use **Adicionar obra**. Para corrigir informações dos quatro
+cadastros iniciais, atualize `rso/projects.py`. Os novos relatórios começam sem atividades, equipes extras,
 fotos ou percentuais históricos. Os rascunhos antigos reconhecidos pelo nome da
 obra recebem o cadastro fixo atual, preservando informações semanais e as exceções
 editáveis. Os valores antigos do cadastro são substituídos pelos dados dos modelos.
@@ -337,3 +356,5 @@ quantidades ímpares, uploads concorrentes e backup/restauração. Os testes Fir
 cobrem perda do cache do Render, alterações durante envio, confirmações perdidas,
 concorrência, migração e retomada de pendências. A integração real com o SDK pode
 ser testada no emulador oficial seguindo FIREBASE.md.
+O cadastro de novas obras também é testado após reinício local, restauração de ZIP
+e perda completa do cache com recuperação pelo Firestore emulado.

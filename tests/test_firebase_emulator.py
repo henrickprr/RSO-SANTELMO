@@ -14,6 +14,8 @@ from rso.excel_generator import ExcelGenerator
 from rso.firebase_backend import CHUNK_BYTES, CloudConflict, FirebaseBackend, FirebaseConfig, payload_for
 from rso.models import Report, ValidationError
 from rso.pdf_generator import PDFGenerator
+from rso.project_catalog import ProjectCatalog
+from rso.projects import ProjectProfile
 
 pytestmark = pytest.mark.skipif(not os.environ.get("FIRESTORE_EMULATOR_HOST"),
                                reason="Requer emulador Firestore local (ver FIREBASE.md)")
@@ -35,6 +37,32 @@ def noisy_photo(tmp_path):
     Image.frombytes("RGB", (1100, 1100), os.urandom(1100 * 1100 * 3)).save(path, quality=92)
     assert path.stat().st_size > CHUNK_BYTES
     return path
+
+
+def test_custom_project_survives_empty_render_cache_and_creates_next_week(backend, tmp_path):
+    first = CloudRepository(tmp_path / "registration", backend, background=False)
+    first.load_all()
+    profile = ProjectProfile(name="Obra cadastrada no Firebase", obra="REFORMA TESTE",
+        cliente="CLIENTE TESTE", address="Rua Teste, 10", responsavel_tecnico="ENGª TESTE",
+        engineer="ENGENHEIRA TESTE", crea="CREA-TESTE", art="ART-TESTE", permit="ALVARÁ-TESTE")
+    original = ProjectCatalog(first).register(profile)
+    original.activities[0] = "Atividade da primeira semana"
+    first.save(original)
+    first.sync_pending(force=True)
+    assert first.sync_status(original.id)["status"] == "synced"
+
+    cold = CloudRepository(tmp_path / "empty-cache", backend, background=False)
+    restored = cold.load_all()
+    assert len(restored) == 1 and restored[0].project_profile == profile
+    assert restored[0].activities[0] == "Atividade da primeira semana"
+    catalog = ProjectCatalog(cold)
+    assert catalog.choices()[profile.key] == profile.name
+    second = catalog.new_report(profile.key)
+    assert second.activities == [""] * 5 and second.id != original.id
+    assert second.crea == profile.crea and second.cliente == profile.cliente
+    cold.sync_pending(force=True)
+    assert cold.sync_status(second.id)["status"] == "synced"
+    assert len(backend.list_reports()) == 2
 
 
 def test_binary_photo_chunks_round_trip_and_reuse(backend, tmp_path):

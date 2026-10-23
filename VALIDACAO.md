@@ -1,8 +1,20 @@
-# Validação — versão 1.6.0
+# Validação — versão 1.7.0
 
-- 134 testes automatizados aprovados, incluindo 7 com SDK no emulador oficial do
+- 145 testes automatizados aprovados, incluindo 8 com SDK no emulador oficial do
   Firestore Standard v1.22.0. Lint sem ocorrências. Em execução sem emulador, esses
-  7 testes de integração são ignorados; os demais 127 continuam executáveis.
+  8 testes de integração são ignorados; os demais 137 continuam executáveis.
+- Adicionar obra: cadastro único, rejeição de nomes repetidos (acentos/maiúsculas/espaços),
+  submissões simultâneas, isolamento entre semanas e dados permanentes somente para leitura.
+- Cadastro novo preservado após reinício local, backup/restauração e recuperação do
+  Firestore com diretório do Render vazio. Obras restauradas não se duplicam no seletor.
+- PDF e Excel usam o cliente, endereço, responsável técnico, engenheiro, CREA, ART
+  e alvará da nova obra. Rascunhos sem o campo de cadastro novo continuam compatíveis.
+- Corrigido e coberto por regressão o formulário que mantinha a validação bloqueada
+  depois de corrigir campos obrigatórios; Flet limpa o erro usando uma string vazia.
+- Chromium 1.7.0: cadastro pela interface, correção de campos obrigatórios, seleção
+  automática da nova aba, dados fixos bloqueados e atividade salva no Firestore emulado.
+  Servidor reiniciado com cache vazio: cadastro recuperado, nova semana criada pelo
+  seletor, cabeçalho/rodapé reutilizados e PDF, XLSX e backup exportados pela interface.
 - Firebase Spark: recuperação de relatórios e fotos com cache completamente novo,
   alteração durante envio, retomada da fila, migração de JSONs e restauração de backup.
 - Confirmação perdida após commit testada: retry idempotente. Erros de envio/cota

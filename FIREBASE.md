@@ -1,4 +1,8 @@
-# Firebase gratuito — salvamento automático do RSO 1.6.0
+# Firebase gratuito — salvamento automático do RSO 1.7.0
+
+Os cadastros feitos em **Adicionar obra** acompanham os relatórios sincronizados.
+Depois de recuperar os dados da nuvem, a obra volta a aparecer em **Novo relatório**.
+A configuração e as regras são as mesmas da versão 1.6.0.
 
 Use **Render Free + Firebase Spark**, sem cadastrar faturamento. Esta versão usa
 somente **Cloud Firestore Standard, banco `(default)`**. Não crie Cloud Storage,
