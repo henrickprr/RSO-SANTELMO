@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // O navegador não acessa o Firestore diretamente. O servidor autenticado
+    // usa Admin SDK e IAM; estas regras bloqueiam clientes públicos.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

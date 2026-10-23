@@ -1,5 +1,6 @@
 # Instalação sem runtime desktop, adequada ao Render.
 -r requirements-core.txt
+-r requirements-firebase.txt
 flet-web==0.28.3
 fastapi==0.141.1
 uvicorn[standard]==0.52.1

@@ -1,18 +1,39 @@
-# Atualização 1.5.3 — feriado e Excel contínuo
+# Atualização 1.6.0 — salvamento automático no Firebase Spark
+
+O pacote inclui a integração pronta, mas não contém um projeto ou credencial real.
+Siga **[FIREBASE.md](FIREBASE.md)** para criar o projeto Spark, sem faturamento,
+e configurar o acesso no Render. Usa Firestore para dados e fotos; não exige Blaze.
+
+- Alterações são salvas no cache e sincronizadas automaticamente após uma breve
+  pausa na digitação. O envio também inclui as fotos e legendas.
+- O indicador confirma **Salvo no Firebase** somente depois de concluir dados e fotos.
+  Falhas e cotas excedidas ficam pendentes e são tentadas novamente.
+- Ao reabrir, o app recupera o diário da semana, mesmo com o disco do Render vazio.
+- Revisões antigas não substituem silenciosamente outra sessão. Há a opção de
+  preservar a edição como uma cópia.
+- Novos arquivos: `rso/firebase_backend.py`, `rso/cloud_repository.py`,
+  `requirements-firebase.txt`, `firebase.json`, `firestore.rules`,
+  `firestore.indexes.json` e `FIREBASE.md`. Envie o pacote completo.
+
+O modo local continua disponível enquanto o Firebase não estiver configurado.
+No plano Spark há cotas gratuitas: acompanhe o uso; a configuração não habilita cobrança.
 
 1. Se o aplicativo já tem dados no Render, baixe o backup antes de atualizar.
 2. Extraia o ZIP e envie todo o conteúdo para a raiz do repositório GitHub.
    **Preserve as pastas**: `rso/`, `assets/`, `tools/`, `tests/`, `.github/`.
    `web.py`, `render.yaml` e a pasta `rso/` devem estar no mesmo nível.
 3. Faça o commit. No Render, use **Manual Deploy → Deploy latest commit**.
+   Para ativar a nuvem, configure antes as variáveis e o Secret File descritos em FIREBASE.md.
 4. Recarregue o aplicativo com **Ctrl+F5** e restaure o backup, se necessário.
 5. Em **Feriados na semana?**, marque **Sim** e preencha **Qual foi o feriado?** ao lado.
 6. Exporte o XLSX: todas as seções ficam na aba **RSO**, com assinatura no final.
 
 O Render Free perde os arquivos locais ao reiniciar/publicar. O ZIP do código
-não contém os rascunhos que você preencheu: eles precisam do backup do aplicativo.
+não contém os rascunhos que você preencheu: para esta primeira migração, preserve
+o backup do aplicativo. Nas atualizações seguintes, o Firebase recupera os dados
+já confirmados na nuvem; pendências ainda não sincronizadas dependem do cache.
 
-## O que mudou
+## Recursos preservados das versões anteriores
 
 - Excel com uma única aba visível contínua: equipes, cinco dias, materiais, fotos
   e complementos em sequência. Cabeçalho e assinatura aparecem uma vez.
@@ -53,9 +74,8 @@ Para corrigir informações permanentes ou adicionar outro cadastro, altere some
 `rso/projects.py` e publique novamente. Não preencha endereços inexistentes nos modelos
 com o endereço da empresa: são informações diferentes.
 
-Esta atualização altera `rso/models.py`, `rso/ui.py`, `rso/layout.py` e
-`rso/excel_generator.py`, além de acrescentar `rso/excel_layout.py`.
 Envie o pacote completo preservando a pasta `rso/`; os arquivos precisam
 ser atualizados juntos. O pacote inclui exemplos, documentação e testes de regressão.
-As dependências e a configuração do Render Free continuam as mesmas.
+`requirements-web.txt` agora inclui o SDK Firebase; o Build Command continua o mesmo.
+O serviço permanece no Render Free, sem disco pago.
 Os rascunhos existentes são compatíveis; faça backup antes de qualquer deploy.

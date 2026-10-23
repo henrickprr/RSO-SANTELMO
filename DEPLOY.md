@@ -1,10 +1,15 @@
-# GitHub + Render Free — versão 1.5.3
+# GitHub + Render Free — versão 1.6.0
 
 O pacote está configurado para um **Python Web Service no plano Free do Render**,
-sem disco pago e sem banco de dados externo. O GitHub guarda o código; o Render
+sem disco pago, com Firebase Spark opcional. O GitHub guarda o código; o Render
 executa o aplicativo. GitHub Pages não executa este servidor Python/Flet.
 
 ## Como os dados são guardados no Free
+
+**Com Firebase:** siga [FIREBASE.md](FIREBASE.md) para criar o projeto Spark,
+configurar a credencial no Render e ativar `RSO_BACKEND=firebase`. Rascunhos e fotos
+confirmados como Salvo no Firebase sobrevivem à perda do disco do Render.
+O restante desta seção descreve o modo **local**, padrão antes dessa configuração.
 
 O aplicativo salva rascunhos e fotos em `/tmp/rso-data`. **Essa pasta é temporária**:
 seu conteúdo se perde quando o Render suspende, reinicia ou reimplanta o serviço.
@@ -48,6 +53,8 @@ O `.gitignore` exclui `.env`, ambientes virtuais, ZIPs e as pastas usuais de dad
 2. Conecte o GitHub e autorize o acesso ao repositório privado.
 3. Selecione a branch `main` e `render.yaml` na raiz.
 4. Cadastre **RSO_PASSWORD**, com pelo menos 12 caracteres. O usuário inicial é **admin**.
+   Em **RSO_BACKEND**, informe `local` para começar, ou `firebase` somente depois
+   de configurar projeto e credencial conforme FIREBASE.md.
 5. Confirme que aparece **Free**, sem disco persistente, e conclua a criação.
 6. Aguarde o estado **Live**. Abra a URL HTTPS `https://...onrender.com`.
 7. Informe `admin` e sua senha no diálogo do navegador.
@@ -59,7 +66,9 @@ os relatórios históricos do pacote não são carregados automaticamente.
 **Atualizações automáticas estão desligadas** (`autoDeployTrigger: "off"`).
 Antes de cada atualização, baixe o backup. Depois faça push, aguarde os testes
 em Actions e use **Manual Deploy → Deploy latest commit** no Render. Ao terminar,
-restaure o ZIP. Isso não impede suspensões e reinícios realizados pelo próprio Render.
+restaure o ZIP no modo local. Com Firebase ativo, os dados confirmados são recuperados
+automaticamente; não restaure o ZIP a cada deploy para evitar cópias duplicadas.
+Isso não impede suspensões e reinícios realizados pelo próprio Render.
 
 ### Se você já criou um serviço pago
 
@@ -97,6 +106,7 @@ A versão do Python vem de `.python-version` (**3.12.11**). Cadastre as variáve
 | `FLET_SECRET_KEY` | Chave aleatória, com pelo menos 32 caracteres |
 | `RSO_DATA_DIR` | `/tmp/rso-data` |
 | `RSO_STORAGE_MODE` | `ephemeral` |
+| `RSO_BACKEND` | `local`, ou `firebase` após configurar FIREBASE.md |
 | `TZ` | `America/Fortaleza` |
 
 O Render fornece `PORT`. Para gerar a chave no computador:
@@ -111,7 +121,8 @@ transforma armazenamento temporário em permanente.
 
 ## Usar backup e restauração
 
-1. Aguarde o fim dos uploads e a indicação **Salvo temporariamente** no formulário.
+1. Aguarde o fim dos uploads e a indicação de salvamento no formulário:
+   **Salvo no Firebase** com nuvem ativa, ou **Salvo temporariamente** no modo local.
 2. Abra **Backup e restauração** no topo do aplicativo. Também é possível abrir
    `/backup` diretamente na URL do serviço, usando a mesma senha.
 3. Clique **Baixar backup ZIP** e confirme o arquivo na pasta de downloads.
@@ -135,10 +146,12 @@ expandido a 200 MB. Fotos exportadas pelo aplicativo já são reduzidas para at�
   público e retorna apenas `{"status":"ok"}`. Use a URL HTTPS do Render.
 - Use **uma janela de edição por vez** e **um worker**. Não há contas individuais,
   permissões por obra ou sincronização entre editores; todos com a senha veem todas as obras.
-- O navegador precisa de conexão. No Free, **Salvar Rascunho** salva somente no servidor
-  temporário; use o backup ZIP para guardar uma cópia fora dele.
+- O navegador precisa de conexão. No modo local, **Salvar Rascunho** salva somente no
+  servidor temporário. Com Firebase, o botão também antecipa a sincronização;
+  aguarde a confirmação de dados e fotos. O backup ZIP continua disponível.
 - Para trabalhar offline com dados locais persistentes, use `python main.py` no computador.
-  As instalações local e remota não sincronizam automaticamente.
+  Instalações configuradas com o mesmo projeto e namespace Firebase recuperam os
+  mesmos relatórios ao abrir. Evite editar simultaneamente o mesmo relatório.
 - O Free está sujeito às cotas do Render (incluindo horas compartilhadas pelo workspace,
   tráfego e builds). Consulte o painel e a [documentação do Free](https://render.com/docs/free).
   Esta configuração não adiciona serviços pagos nem mecanismos para evitar a suspensão.
@@ -177,7 +190,8 @@ eliminação do sistema de arquivos que o Render Free realiza.
 | ZIP não é aceito | Use o ZIP de **Baixar backup**, não o ZIP do código-fonte ou os PDFs. |
 | PDF/XLSX não abre | Permita pop-ups para a URL do aplicativo. |
 | Exportação reclama das fotos | Verifique se os arquivos de imagem ainda existem; reimporte os ausentes. |
-| Upload mostra `Stream has already been listened to` ou trava ao enviar várias fotos | Atualize para 1.5.3, recarregue a página e use **Adicionar fotos** para selecionar novamente os arquivos que falharam. |
+| Upload mostra `Stream has already been listened to` ou trava ao enviar várias fotos | Atualize para 1.6.0, recarregue a página e use **Adicionar fotos** para selecionar novamente os arquivos que falharam. |
+| Firebase não conecta ou salvamento fica pendente | Siga FIREBASE.md; confira projeto, banco (default), credencial, IAM e cotas. O erro não ativa faturamento nem troca silenciosamente para armazenamento local. |
 
 Referências: [Free](https://render.com/docs/free),
 [Blueprint](https://render.com/docs/blueprint-spec),

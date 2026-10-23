@@ -20,7 +20,15 @@ def register_backup_routes(app: FastAPI, repository: DraftRepository) -> None:
 
     @app.get("/backup", include_in_schema=False)
     async def backup_page():
-        return HTMLResponse((ASSETS / "backup.html").read_text(encoding="utf-8"))
+        notice = ("Com Firebase ativo, aguarde Salvo no Firebase antes de fechar. Este ZIP "
+                  "é uma cópia independente dos seus dados. Pendências ainda não sincronizadas "
+                  "podem se perder se o Render apagar o cache local."
+                  if repository.cloud_enabled else
+                  "No Render Free, os dados locais são temporários. Baixe um backup antes de "
+                  "sair, reiniciar ou atualizar o aplicativo. Sem ele, alterações perdidas "
+                  "pelo servidor não podem ser recuperadas.")
+        return HTMLResponse((ASSETS / "backup.html").read_text(encoding="utf-8").replace(
+            "{{STORAGE_NOTICE}}", notice))
 
     @app.get("/backup/download", include_in_schema=False)
     async def download():

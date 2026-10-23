@@ -1,6 +1,25 @@
-# Validação — versão 1.5.3
+# Validação — versão 1.6.0
 
-- 112 testes automatizados aprovados, incluindo persistência, rascunhos antigos,
+- 134 testes automatizados aprovados, incluindo 7 com SDK no emulador oficial do
+  Firestore Standard v1.22.0. Lint sem ocorrências. Em execução sem emulador, esses
+  7 testes de integração são ignorados; os demais 127 continuam executáveis.
+- Firebase Spark: recuperação de relatórios e fotos com cache completamente novo,
+  alteração durante envio, retomada da fila, migração de JSONs e restauração de backup.
+- Confirmação perdida após commit testada: retry idempotente. Erros de envio/cota
+  não indicam salvamento concluído. Cotas simuladas não vazam detalhes da API.
+- Fotos maiores que um documento divididas e recuperadas byte a byte; interrupção
+  no segundo fragmento não publica manifesto incompleto. Fragmento ausente não
+  substitui o arquivo local por download parcial. Fotos iguais são reaproveitadas.
+- Transações reais do emulador rejeitam revisão antiga. Concorrência local/entre
+  instâncias preserva a edição como cópia. Sessões iniciais não duplicam abas padrão.
+- Regras fornecidas rejeitam leitura pública por REST no emulador; o SDK do servidor
+  consegue salvar. IAM e credenciais reais ainda dependem do projeto a ser criado.
+- Chromium 1.6.0 conectado ao emulador: digitação, duas fotos e legenda salvas sem
+  clicar em Salvar. Confirmado o indicador na interface. Servidor encerrado e aberto
+  com cache vazio; segunda-feira e hashes das fotos recuperados, sexta acrescentada,
+  PDF/XLSX e backup gerados. Conteúdo dos arquivos finais também conferido.
+- UI não mostra confirmação antiga de salvamento enquanto ainda recebe fotos do navegador.
+- Regressões anteriores continuam cobertas, incluindo persistência, rascunhos antigos,
   impressão condicional e preservação de descrições extensas de feriados.
   Lint sem ocorrências.
 - Descrição do feriado preservada na restauração do backup. PDF/XLSX mostram
@@ -51,10 +70,13 @@
 - Testes de PDF/XLSX cobrem imagens, texto, assinatura, proporções, bordas, paginação,
   fórmulas tratadas como texto, títulos acima das imagens e isolamento das obras.
 - Autenticação HTTP/WebSocket, upload, downloads e backups continuam cobertos.
-- Render Free continua sem disco pago; os dados locais são temporários e precisam
-  de backup ZIP manual. Nenhum deploy remoto foi executado durante esta atualização.
+- Render Free continua sem disco pago. No modo local, os dados dependem de backup;
+  no modo Firebase, somente os dados/fotos confirmados na nuvem sobrevivem à perda
+  do cache. O pacote não contém projeto ou credenciais reais. Nenhum deploy no Render,
+  criação de projeto Firebase ou ativação de faturamento foi executado nesta atualização.
 
-Os testes são locais em Linux/Python 3.12. O XLSX foi verificado com openpyxl;
+Os testes são locais em Linux/Python 3.12, Firebase Admin 7.7.0 e Firestore SDK 2.34.1.
+O emulador não reproduz cobrança, quotas reais ou IAM do projeto. O XLSX foi verificado com openpyxl;
 não foi renderizado no Microsoft Excel. Diferenças tipográficas do modelo estão
 explicadas em README.md. Os avisos de depreciação das dependências não impedem
 os testes aprovados.

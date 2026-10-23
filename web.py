@@ -4,20 +4,22 @@ Executar: python -m uvicorn web:create_app --factory --host 0.0.0.0 --port 10000
 Use um único worker: as sessões Flet residem na memória deste processo.
 """
 
+import asyncio
+
 import flet as ft
 import flet_web.fastapi as flet_fastapi
 from fastapi import HTTPException, Request
 from starlette.responses import JSONResponse
 
 from rso.backup_web import register_backup_routes
-from rso.storage import DraftRepository
+from rso.cloud_repository import open_repository
 from rso.ui import RSOApp
 from rso.web_security import AccessMiddleware, WebConfig
 
 
 def create_app():
     config = WebConfig.from_env()
-    repository = DraftRepository(config.data_dir)
+    repository = open_repository(config.data_dir)
     public = repository.root / "public"
     public.mkdir(parents=True, exist_ok=True)
 
@@ -25,8 +27,11 @@ def create_app():
         await RSOApp(page, repository).mount()
 
     # A classe do Flet inicializa/encerra o gerenciador de sessões no lifespan.
+    async def shutdown():
+        await asyncio.to_thread(repository.close)
+
     app = flet_fastapi.FastAPI(title="RSO Santelmo", docs_url=None,
-                              redoc_url=None, openapi_url=None)
+                              redoc_url=None, openapi_url=None, on_shutdown=[shutdown])
     app.state.repository = repository
 
     @app.api_route("/healthz", methods=["GET", "HEAD"], include_in_schema=False)

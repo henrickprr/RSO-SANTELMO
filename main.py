@@ -7,7 +7,7 @@ import secrets
 
 import flet as ft
 
-from rso.storage import DraftRepository
+from rso.cloud_repository import open_repository
 from rso.ui import RSOApp
 
 
@@ -17,7 +17,7 @@ def main():
     parser.add_argument("--port", type=int, default=8550)
     parser.add_argument("--data-dir", type=Path, help="Pasta local de rascunhos e fotos")
     args = parser.parse_args()
-    repository = DraftRepository(args.data_dir)
+    repository = open_repository(args.data_dir)
     public = repository.root / "public"
     public.mkdir(exist_ok=True)
     # URLs temporárias de upload no modo web. O modo desktop não depende de servidor externo.
@@ -26,9 +26,12 @@ def main():
     async def target(page: ft.Page):
         await RSOApp(page, repository).mount()
 
-    ft.app(target=target, host="127.0.0.1", port=args.port if args.web else 0,
-           view=ft.AppView.WEB_BROWSER if args.web else ft.AppView.FLET_APP,
-           assets_dir=str(public), upload_dir=str(repository.uploads))
+    try:
+        ft.app(target=target, host="127.0.0.1", port=args.port if args.web else 0,
+               view=ft.AppView.WEB_BROWSER if args.web else ft.AppView.FLET_APP,
+               assets_dir=str(public), upload_dir=str(repository.uploads))
+    finally:
+        repository.close()
 
 
 if __name__ == "__main__":

@@ -34,6 +34,8 @@ def atomic_write(path: Path, content: bytes) -> None:
 
 
 class DraftRepository:
+    cloud_enabled = False
+
     def __init__(self, root: Path | None = None):
         self.root = Path(root or default_data_dir()).resolve()
         self.drafts = self.root / "drafts"
@@ -44,6 +46,27 @@ class DraftRepository:
             directory.mkdir(parents=True, exist_ok=True)
         self.lock = RLock()
         self.warnings: list[str] = []
+
+    def after_restore(self, reports: list[Report]) -> None:
+        """Gancho para a fila de sincronização; o armazenamento local já foi gravado."""
+
+    def prepare_for_backup(self) -> None:
+        """O backend remoto recupera os arquivos antes de produzir o ZIP."""
+
+    def close(self) -> None:
+        """O backend remoto encerra seu worker; o local não possui recursos abertos."""
+
+    def ensure_default_reports(self) -> list[Report]:
+        with self.lock:
+            # Duas sessões podem abrir simultaneamente uma instalação vazia.
+            reports = [self.read(path) for path in sorted(self.drafts.glob("*.json"))]
+            if not reports:
+                for name, template in (("Casa Bella Vista", "wide"), ("Casa Bosque", "compact"),
+                                       ("Casa Sintra", "sintra"), ("Casa Átrio", "compact")):
+                    report = Report.new(name, template)
+                    self.save(report)
+                    reports.append(report)
+            return reports
 
     def save(self, report: Report) -> None:
         # Não validar inputs durante digitação: '02/' também precisa sobreviver a uma queda.

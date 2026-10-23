@@ -1,8 +1,9 @@
-# RSO Santelmo — versão 1.5.3 — Render Free
+# RSO Santelmo — versão 1.6.0 — Render Free + Firebase Spark
 
 Aplicativo Python/Flet para registrar e exportar Relatórios Semanais de Obra.
 Inclui quatro abas iniciais, criação de relatórios por obra, tabelas editáveis, cinco dias
-de atividades, importação de fotos com legendas, salvamento automático local,
+de atividades, importação de fotos com legendas, salvamento automático local e
+sincronização opcional de dados/fotos com Firebase Spark,
 PDF com `fpdf2` e XLSX diagramado com `pandas`/`openpyxl`.
 
 ## GitHub e Render
@@ -13,11 +14,18 @@ Siga **[DEPLOY.md](DEPLOY.md)** para publicar o conteúdo deste pacote em um
 repositório privado e criar o serviço no Render. O Blueprint não adiciona disco ou
 banco de dados pago. GitHub guarda o código; Render executa o aplicativo.
 
-No Render Free, os rascunhos e fotos ficam temporariamente em `/tmp/rso-data` e
-são perdidos em suspensões, reinícios e novas implantações. **Baixe o backup ZIP**
-no botão **Backup e restauração** antes de sair e durante o trabalho. A recuperação
-usa o último ZIP baixado; não existe backup automático externo. O navegador precisa
-de conexão. A versão desktop continua disponível para trabalho offline.
+**Para continuar o diário durante a semana sem perder dados ao reiniciar o Render,
+configure o Firebase conforme [FIREBASE.md](FIREBASE.md).** Usa somente Firestore
+Standard `(default)`, plano Spark, sem Cloud Storage e sem faturamento. Os dados
+e fotos confirmados como **Salvo no Firebase** são recuperados ao reabrir o app,
+inclusive quando `/tmp/rso-data` estiver vazio. O projeto Firebase e a credencial
+precisam ser configurados por você; não estão embutidos neste pacote.
+
+Sem essa configuração (`RSO_BACKEND=local`, padrão), os dados ficam apenas no disco
+temporário do Render: baixe o backup ZIP antes de sair/atualizar. Com Firebase,
+o backup continua disponível como cópia independente. Alterações pendentes de envio
+ainda dependem do cache local. O navegador precisa de conexão; o desktop permite
+edição local offline depois de instalado.
 
 ## Executar
 
@@ -95,7 +103,10 @@ campo Obra na exportação; textos longos usam o complemento, sem serem descarta
    preservando a digitação para quando Sim for selecionado novamente.
 3. Ajuste equipes, equipamentos, atividades diárias e chegada de materiais.
 4. Adicione as fotos gerais da semana e escreva a **atividade da foto**.
-5. Exporte PDF/XLSX. No Render Free, baixe também um backup antes de sair.
+5. Durante a semana, volte ao mesmo relatório e acrescente os serviços do dia e fotos.
+   Com Firebase, aguarde a indicação **Salvo no Firebase** antes de fechar.
+6. Na sexta, exporte PDF/XLSX. Use **Novo relatório** para a semana seguinte.
+   Sem Firebase, baixe também um backup antes de sair do Render Free.
 
 Para adicionar outra obra ou corrigir informações permanentes, atualize o cadastro
 em `rso/projects.py`. Os novos relatórios começam sem atividades, equipes extras,
@@ -140,8 +151,13 @@ Cada alteração recebida pelo aplicativo é salva imediatamente: sem depender d
 Salvar Rascunho ou do fechamento normal do aplicativo. No desktop, isso funciona
 offline; no Render, é necessário que a conexão entregue a alteração ao servidor.
 Campos temporariamente incompletos, como uma data em digitação, também são salvos.
-A validação completa acontece na exportação. No Render Free, o salvamento automático
-é temporário e não substitui o backup ZIP baixado para seu computador.
+A validação completa acontece na exportação. No modo local do Render Free, o
+salvamento é temporário e depende do backup ZIP. Com `RSO_BACKEND=firebase`, uma
+fila envia automaticamente os rascunhos e fotos ao Firestore após 1,5 s sem digitação
+(ou até 8 s de digitação contínua), sem bloquear o formulário. O indicador só confirma
+o salvamento depois de concluir fotos e dados; falhas de rede/cota ficam pendentes.
+O estado exibido é atualizado localmente, sem consultar o banco a cada segundo.
+Veja cotas, configuração e limites de conexão em [FIREBASE.md](FIREBASE.md).
 
 O diretório padrão é definido por `platformdirs`:
 
@@ -163,6 +179,7 @@ dados-rso/
 ├── media/       # Cópias das fotos, separadas por obra
 ├── exports/     # Exportações geradas, em diretórios próprios
 ├── uploads/     # Recepção temporária no modo web
+├── firebase-sync/ # Fila e revisão confirmada, apenas no backend Firebase
 └── public/      # Downloads do modo web; protegidos por senha no servidor publicado
 ```
 
@@ -259,6 +276,8 @@ rso/backup_web.py         Download/upload do ZIP com autenticação
 rso/models.py             Report, ResourceRow, Photo e validação
 rso/projects.py           Cadastro fixo de cada obra e exceções editáveis
 rso/storage.py            JSON atômico, backup e importação de imagens
+rso/firebase_backend.py   Firestore Spark: textos, fotos em partes e revisões
+rso/cloud_repository.py   Cache, fila, salvamento automático e recuperação
 rso/ui.py                 ObraTab e RSOApp; ft.Tabs, Cards e FilePickers
 rso/settings.py           Coordenadas em pontos, paletas e cabeçalho fixo
 rso/layout.py             Grade compartilhada, quebra de texto e paginação
@@ -269,6 +288,7 @@ assets/                   Identidade visual e fontes
 examples/                 Dados, fotos e arquivos gerados da Casa Bosque
 tools/demo.py             Importação/exportação do exemplo
 tests/                    Testes de relatórios, fotos semanais, impressão e publicação
+FIREBASE.md               Configuração do Firebase Spark sem faturamento
 .github/workflows/ci.yml   Validação automática no GitHub
 ```
 
@@ -313,4 +333,7 @@ correção EXIF, arquivos ausentes, assinaturas, ausência de sobreposição na 
 paginação, textos extensos, células numéricas, imagens no XLSX e texto iniciado por
 `=` preservado como texto. Também verificam cadastro fixo por obra, exceções
 editáveis, migração de rascunhos, fotos gerais da semana, título acima das imagens,
-quantidades ímpares, uploads concorrentes e backup/restauração.
+quantidades ímpares, uploads concorrentes e backup/restauração. Os testes Firebase
+cobrem perda do cache do Render, alterações durante envio, confirmações perdidas,
+concorrência, migração e retomada de pendências. A integração real com o SDK pode
+ser testada no emulador oficial seguindo FIREBASE.md.

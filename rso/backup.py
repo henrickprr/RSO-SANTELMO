@@ -33,6 +33,7 @@ class BackupService:
         Usa disco e streaming para não duplicar todas as fotos na RAM do plano Free.
         """
         try:
+            self.repository.prepare_for_backup()
             with self.repository.lock:
                 reports = [self.repository.read(p) for p in sorted(self.repository.drafts.glob("*.json"))]
                 photos = {p.path: self.repository.resolve_photo(p) for r in reports for p in r.photos}
@@ -141,4 +142,5 @@ class BackupService:
                     for path in moved_dirs:
                         shutil.rmtree(path)
                     raise
+            self.repository.after_restore(reports)
             return reports

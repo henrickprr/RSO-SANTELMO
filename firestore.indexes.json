@@ -1,0 +1,8 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    {"collectionGroup": "chunks", "fieldPath": "data", "indexes": []},
+    {"collectionGroup": "reports", "fieldPath": "payload", "indexes": []},
+    {"collectionGroup": "reports", "fieldPath": "media", "indexes": []}
+  ]
+}

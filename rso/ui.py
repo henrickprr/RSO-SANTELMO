@@ -15,6 +15,7 @@ import flet as ft
 from PIL import Image
 
 from .excel_generator import ExcelGenerator
+from .firebase_backend import CloudConflict
 from .models import DAYS, WEATHER, Report, ResourceRow, ValidationError, parse_date
 from .pdf_generator import PDFGenerator
 from .projects import PROJECTS, apply_project, is_fixed_field
@@ -35,13 +36,15 @@ class ObraTab(ft.Column):
     """
 
     def __init__(self, page: ft.Page, report: Report, repository: DraftRepository,
-                 on_name_change=None):
+                 on_name_change=None, on_copy=None):
         super().__init__(expand=True, spacing=0)
         self.host_page = page
         apply_project(report)
         self.report = report
         self.repository = repository
         self.on_name_change = on_name_change
+        self.on_copy = on_copy
+        self.stale = False
         self.fields: dict[str, ft.TextField] = {}
         self.status = ft.Text("Rascunho • pronto para editar", size=12, color=MUTED)
         self.summary = ft.Text(size=12, color=MUTED)
@@ -69,6 +72,14 @@ class ObraTab(ft.Column):
     def commit(self, notify: bool = False) -> bool:
         try:
             self.repository.save(self.report)
+            if self.repository.cloud_enabled:
+                if notify:
+                    self.repository.request_sync(self.report.id)
+                    self.toast("Sincronização solicitada. Aguarde a indicação Salvo no Firebase.")
+                self.refresh_cloud_status()
+                self.refresh_summary()
+                self.host_page.update()
+                return True
             temporary = os.environ.get("RSO_STORAGE_MODE") == "ephemeral"
             label = "Salvo temporariamente" if temporary else "Rascunho salvo"
             self.status.value = f"{label} às {datetime.now():%H:%M:%S}"
@@ -78,7 +89,10 @@ class ObraTab(ft.Column):
                            if temporary else "Rascunho salvo, incluindo atividades e legendas.")
                 self.toast(message)
         except OSError as exc:
-            self.status.value = "Não foi possível salvar. Verifique o espaço e as permissões da pasta."
+            self.stale = isinstance(exc, CloudConflict)
+            self.copy_button.visible = self.stale
+            self.status.value = (str(exc) if self.stale else
+                "Não foi possível salvar. Verifique o espaço e as permissões da pasta.")
             self.status.color = "#A33232"
             if notify:
                 self.toast(f"Falha ao salvar: {exc}", True)
@@ -87,6 +101,40 @@ class ObraTab(ft.Column):
         self.refresh_summary()
         self.host_page.update()
         return True
+
+    def refresh_cloud_status(self):
+        if not self.repository.cloud_enabled or self.busy or self.stale:
+            return
+        if self.importing_photos or self.pending_uploads:
+            self.status.value = "Recebendo fotos • aguarde o salvamento antes de fechar"
+            self.status.color = "#8A5B12"
+            return
+        state = self.repository.sync_status(self.report.id)
+        status = state["status"]
+        self.copy_button.visible = status == "conflict"
+        if status == "synced":
+            stamp = datetime.fromisoformat(state["saved_at"]).astimezone().strftime("%H:%M:%S")
+            self.status.value = f"Salvo no Firebase às {stamp} • dados e fotos"
+            self.status.color = GREEN
+        elif status == "syncing":
+            self.status.value = "Salvando dados e fotos no Firebase…"
+            self.status.color = MUTED
+        elif status in ("error", "conflict"):
+            self.status.value = state["error"]
+            self.status.color = "#A33232"
+        else:
+            self.status.value = "Salvamento na nuvem pendente • mantenha o aplicativo aberto"
+            self.status.color = "#8A5B12"
+
+    async def keep_copy(self, event):
+        try:
+            copy = await asyncio.to_thread(self.repository.keep_as_copy, self.report)
+            if self.on_copy:
+                self.on_copy(copy)
+            self.toast("Edição preservada em uma nova aba. Aguarde o salvamento no Firebase. "
+                       "Reabra o aplicativo para atualizar a aba original.")
+        except OSError:
+            self.toast("Não foi possível guardar a cópia. Mantenha esta janela aberta.", True)
 
     def bind(self, obj, attribute: str):
         async def changed(event):
@@ -253,7 +301,9 @@ class ObraTab(ft.Column):
             self.section("01", "Identificação da obra", "Cadastro fixo por obra; endereços e cliente do Átrio podem ser preenchidos.", metadata, f"{self.report.id}-metadata"),
             self.section("02", "Mão de obra e equipamentos", "Adicione as equipes e confira os totais calculados.", resources, f"{self.report.id}-resources"),
             self.section("03", "Atividades diárias", "Registre os serviços realizados de segunda a sexta-feira.", activities, f"{self.report.id}-activities"),
-            self.section("04", "Materiais e registro fotográfico", "As fotos são copiadas para a pasta de dados do aplicativo.", photos, f"{self.report.id}-photos"),
+            self.section("04", "Materiais e registro fotográfico",
+                         "Adicione as fotos ao longo da semana; elas permanecem neste relatório.",
+                         photos, f"{self.report.id}-photos"),
             self.section("05", "Responsabilidade e exportação", "Responsáveis, CREA, ART e alvará fixos conforme o modelo da obra.", footer, f"{self.report.id}-footer"),
             ft.Container(height=12),
         ], expand=True, scroll=ft.ScrollMode.AUTO, spacing=16)
@@ -272,6 +322,9 @@ class ObraTab(ft.Column):
         self.excel_button = ft.OutlinedButton("Exportar XLSX", icon=ft.Icons.TABLE_CHART_OUTLINED,
                                                on_click=export_excel)
         self.busy_indicator = ft.ProgressRing(width=18, height=18, stroke_width=2, visible=False)
+        self.copy_button = ft.TextButton("Guardar como cópia", icon=ft.Icons.CONTENT_COPY,
+                                         on_click=self.keep_copy, visible=False)
+        self.status.expand = True
         navigation = []
         for key, label in [("metadata", "Identificação"), ("resources", "Equipes"),
                            ("activities", "Atividades"), ("photos", "Fotos"), ("footer", "Assinatura")]:
@@ -283,7 +336,8 @@ class ObraTab(ft.Column):
                          ft.Container(content=ft.ResponsiveRow([
                              ft.Row([self.busy_indicator, self.status], spacing=8,
                                     col={"xs": 12, "lg": 5}),
-                             ft.Row([ft.TextButton("Salvar Rascunho", icon=ft.Icons.SAVE_OUTLINED, on_click=save),
+                             ft.Row([self.copy_button,
+                                     ft.TextButton("Salvar Rascunho", icon=ft.Icons.SAVE_OUTLINED, on_click=save),
                                      self.excel_button, self.pdf_button], wrap=True,
                                     alignment=ft.MainAxisAlignment.END, col={"xs": 12, "lg": 7}),
                          ], spacing=0, run_spacing=8),
@@ -291,6 +345,7 @@ class ObraTab(ft.Column):
         self.refresh_summary()
         self.refresh_day_labels()
         self.render_photos()
+        self.refresh_cloud_status()
 
     def refresh_day_labels(self) -> None:
         try:
@@ -379,6 +434,7 @@ class ObraTab(ft.Column):
     def set_importing(self, value: bool) -> None:
         self.importing_photos = value
         self.upload_button.disabled = value
+        self.refresh_cloud_status()
         self.host_page.update()
 
     async def on_photos_selected(self, event: ft.FilePickerResultEvent):
@@ -594,6 +650,8 @@ class RSOApp:
                             indicator_color=GREEN, label_color=GREEN, unselected_label_color=MUTED,
                             divider_color="#DCE2DA", scrollable=True)
         self.views: dict[str, ObraTab] = {}
+        self.connected = True
+        self._status_task = None
 
     async def mount(self):
         page = self.page
@@ -606,14 +664,23 @@ class RSOApp:
                                                            current_locale=ft.Locale("pt", "BR"))
         page.window.width, page.window.height = 1220, 900
         page.window.min_width, page.window.min_height = 780, 620
-        reports = self.repository.load_all()
+        loading = ft.Column([ft.ProgressRing(), ft.Text("Carregando os relatórios e as fotos…")],
+                            horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+        page.add(loading)
+        try:
+            reports = await asyncio.to_thread(self.repository.load_all)
+        except (OSError, ValidationError) as exc:
+            async def retry(event):
+                page.controls.clear()
+                await self.mount()
+            loading.controls = [ft.Text(str(exc), color="#A33232"),
+                                ft.FilledButton("Tentar novamente", on_click=retry)]
+            page.update()
+            return
+        page.controls.remove(loading)
         # Nunca substituir rascunhos ilegíveis por novos documentos silenciosamente.
         if not reports and not list(self.repository.drafts.glob("*.json")):
-            for name, template in (("Casa Bella Vista", "wide"), ("Casa Bosque", "compact"),
-                                    ("Casa Sintra", "sintra"), ("Casa Átrio", "compact")):
-                report = Report.new(name, template)
-                self.repository.save(report)
-                reports.append(report)
+            reports = self.repository.ensure_default_reports()
         for report in reports:
             self.add_tab(report)
         logo = base64.b64encode((ASSETS / "logo.png").read_bytes()).decode()
@@ -627,17 +694,52 @@ class RSOApp:
             ft.Row([
                 ft.TextButton("Backup e restauração", icon=ft.Icons.SAVE_ALT,
                               on_click=lambda e: page.launch_url("/backup", web_window_name="_blank")),
-                ft.Text("Render Free: dados temporários. Baixe o backup antes de sair.",
-                        color="#8A5B12", size=12,
-                        visible=os.environ.get("RSO_STORAGE_MODE") == "ephemeral"),
+                ft.Text("Salvamento automático • aguarde Salvo no Firebase antes de fechar."
+                        if self.repository.cloud_enabled else
+                        "Render Free: dados temporários. Baixe o backup antes de sair.",
+                        color=GREEN if self.repository.cloud_enabled else "#8A5B12", size=12,
+                        visible=self.repository.cloud_enabled or
+                                os.environ.get("RSO_STORAGE_MODE") == "ephemeral"),
             ], wrap=True, visible=bool(page.web)),
             self.tabs,
         ], expand=True, spacing=14))
+        if self.repository.cloud_enabled:
+            page.on_disconnect = self.disconnected
+            page.on_close = self.disconnected
+            page.on_connect = self.reconnected
+            self._status_task = page.run_task(self.watch_sync)
         if self.repository.warnings:
             recovery_dialog = ft.AlertDialog(title=ft.Text("Recuperação de rascunhos"),
                 content=ft.Text("\n".join(self.repository.warnings)),
                 actions=[ft.TextButton("Fechar", on_click=lambda e: page.close(recovery_dialog))])
             page.open(recovery_dialog)
+
+    async def disconnected(self, event):
+        self.connected = False
+        if self._status_task:
+            self._status_task.cancel()
+
+    async def reconnected(self, event):
+        self.connected = True
+        if self._status_task:
+            self._status_task.cancel()
+        self._status_task = self.page.run_task(self.watch_sync)
+
+    async def watch_sync(self):
+        while self.connected:
+            await asyncio.sleep(1)
+            changed = False
+            for view in list(self.views.values()):
+                before = (view.status.value, view.copy_button.visible)
+                view.refresh_cloud_status()
+                changed |= before != (view.status.value, view.copy_button.visible)
+            if changed:
+                self.page.update()
+
+    def copied(self, report: Report):
+        self.add_tab(report)
+        self.tabs.selected_index = len(self.tabs.tabs) - 1
+        self.page.update()
 
     def name_changed(self, report: Report):
         for tab in self.tabs.tabs:
@@ -645,7 +747,7 @@ class RSOApp:
                 tab.text = report.tab_name or "Nova obra"
 
     def add_tab(self, report: Report):
-        view = ObraTab(self.page, report, self.repository, self.name_changed)
+        view = ObraTab(self.page, report, self.repository, self.name_changed, self.copied)
         self.views[report.id] = view
         self.tabs.tabs.append(ft.Tab(text=report.tab_name, content=view))
 

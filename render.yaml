@@ -11,6 +11,10 @@ services:
     # Deploy manual para dar tempo de baixar o backup antes de atualizar.
     autoDeployTrigger: "off"
     envVars:
+      # Para ativar o Firebase Spark no serviço existente, siga FIREBASE.md.
+      # sync:false preserva a escolha de backend feita no painel do Render.
+      - key: RSO_BACKEND
+        sync: false
       - key: RSO_DATA_DIR
         value: /tmp/rso-data
       - key: RSO_STORAGE_MODE
