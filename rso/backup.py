@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import replace
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -15,6 +16,8 @@ import zipfile
 from PIL import Image
 
 from .models import Report, ValidationError
+from .project_state import project_key
+from .projects import FIXED_FIELDS, ProjectProfile
 from .storage import DraftRepository
 
 MAX_BACKUP_BYTES = 100 * 1024 * 1024
@@ -35,7 +38,7 @@ class BackupService:
         try:
             self.repository.prepare_for_backup()
             with self.repository.lock:
-                reports = [self.repository.read(p) for p in sorted(self.repository.drafts.glob("*.json"))]
+                reports = [self.repository.read_current(p) for p in sorted(self.repository.drafts.glob("*.json"))]
                 photos = {p.path: self.repository.resolve_photo(p) for r in reports for p in r.photos}
                 manifest = json.dumps({"format": "rso-santelmo", "version": 1,
                     "created_at": datetime.now(timezone.utc).isoformat(),
@@ -103,7 +106,23 @@ class BackupService:
     def _stage_and_publish(self, archive: zipfile.ZipFile, reports: list[Report]) -> list[Report]:
         with tempfile.TemporaryDirectory(prefix=".rso-restore-", dir=self.repository.root) as temporary:
             staged = DraftRepository(Path(temporary))
+            restored_keys = {}
             for report in reports:
+                state = self.repository.project_states.get(project_key(report))
+                if state and state.deleted:
+                    # Restauração explícita cria outra identidade; não remove o marcador
+                    # que impede uma sessão antiga de ressuscitar a obra excluída.
+                    key = restored_keys.setdefault(state.key, "custom_" + uuid4().hex)
+                    profile = report.project_profile
+                    if profile is None:
+                        values = {name: getattr(report, name) for name in FIXED_FIELDS - {"tab_name"}}
+                        profile = ProjectProfile(name=report.tab_name, key=state.key, **values)
+                    report.project_profile = replace(profile, key=key, name=profile.name + " (restaurada)")
+                    report.project_key = key
+                # A correção incompleta continua disponível, mas a referência à revisão
+                # de outra instalação não pode autorizar uma sobrescrita do cadastro local.
+                current = self.repository.project_states.get(project_key(report))
+                report.registration_base = current.revision if current and not current.deleted else ""
                 report.id = uuid4().hex
                 report.created_at = datetime.now(timezone.utc).isoformat()
                 report.tab_name += " (restaurada)"

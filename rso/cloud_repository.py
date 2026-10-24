@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from .firebase_backend import CloudConflict, friendly_cloud_error, payload_for, revision_for
 from .models import Report, ValidationError
+from .project_state import ProjectChanged, ProjectDeleted, ProjectState, project_key
 from .storage import DraftRepository, atomic_write
 
 
@@ -34,6 +35,10 @@ class CloudRepository(DraftRepository):
             try:
                 entry = json.loads(path.read_text(encoding="utf-8"))
                 report = Report.from_dict(json.loads(entry["payload"]))
+                state = self.project_states.get(project_key(report))
+                if state and state.deleted:
+                    path.unlink(missing_ok=True)
+                    continue
                 if path.stem != report.id:
                     raise ValueError("ID divergente")
                 if entry["status"] == "syncing":
@@ -54,9 +59,10 @@ class CloudRepository(DraftRepository):
         self.entries[report_id] = entry
 
     def save(self, report: Report) -> None:
-        payload = payload_for(report)
-        revision = revision_for(payload)
         with self.lock:
+            self.apply_registration(report)
+            payload = payload_for(report)
+            revision = revision_for(payload)
             existing = self.entries.get(report.id)
             current = revision_for(existing["payload"]) if existing else None
             observed = getattr(report, "_local_revision", None)
@@ -76,6 +82,47 @@ class CloudRepository(DraftRepository):
             # 1,5 s depois da última edição; digitação contínua envia no máximo a cada 8 s.
             self.due[report.id] = min(now + 1.5, self.first_dirty[report.id] + 8)
         self._wake.set()
+
+    def _purge_deleted(self) -> set[str]:
+        removed = super()._purge_deleted()
+        for report_id, entry in list(self.entries.items()):
+            report = Report.from_dict(json.loads(entry["payload"]))
+            state = self.project_states.get(project_key(report))
+            if state and state.deleted:
+                removed.add(report_id)
+                self.entries.pop(report_id, None)
+                self.due.pop(report_id, None)
+                self.first_dirty.pop(report_id, None)
+                (self.journal / f"{report_id}.json").unlink(missing_ok=True)
+        return removed
+
+    def set_project_state(self, state: ProjectState, expected: str | None) -> None:
+        # Serializar com uploads e transações: um envio em andamento termina antes
+        # da exclusão. O marcador remoto bloqueia inclusive outras instâncias.
+        with self._io_lock:
+            with self.lock:
+                current = self.project_states.get(state.key)
+                if current and current.deleted and not state.deleted:
+                    raise ProjectDeleted()
+                if (current.revision if current else None) != expected and current != state:
+                    raise ProjectChanged()
+            try:
+                self.backend.put_project(state, expected)
+            except (ProjectChanged, ProjectDeleted):
+                raise
+            except Exception as exc:
+                raise OSError(friendly_cloud_error(exc)) from None
+            with self.lock:
+                super().set_project_state(state, expected)
+            if state.deleted:
+                try:
+                    records = self.backend.list_reports()
+                    self.backend.purge_reports([key for key, record in records.items()
+                        if project_key(Report.from_dict(json.loads(record["payload"]))) == state.key])
+                except Exception:
+                    # Exclusão já confirmada. Uma nova abertura retoma a limpeza dos
+                    # documentos, sem reexibir a obra ou reenviar seus relatórios.
+                    self.warnings.append("Obra excluída; limpeza dos documentos será retomada ao reabrir.")
 
     def _target_photo(self, relative: str) -> Path:
         target = (self.root / relative).resolve()
@@ -103,15 +150,26 @@ class CloudRepository(DraftRepository):
         with self._io_lock:
             warnings = []
             try:
+                states = self.backend.list_projects()
                 remote = self.backend.list_reports()
             except Exception as exc:
                 if not list(self.drafts.glob("*.json")):
                     raise OSError(friendly_cloud_error(exc)) from None
                 remote = None
+                states = None
                 warnings.append(friendly_cloud_error(exc) + " Exibindo a cópia local disponível.")
             with self.lock:
+                if states is not None:
+                    self._write_project_states({**self.project_states, **states})
+                    self._purge_deleted()
+                deleted_ids = []
                 if remote is not None:
                     for report_id, record in remote.items():
+                        report = Report.from_dict(json.loads(record["payload"]))
+                        state = self.project_states.get(project_key(report))
+                        if state and state.deleted:
+                            deleted_ids.append(report_id)
+                            continue
                         entry = self.entries.get(report_id)
                         local_path = self.drafts / f"{report_id}.json"
                         # Migração: nunca substituir um rascunho local diferente sem avisar.
@@ -139,6 +197,11 @@ class CloudRepository(DraftRepository):
                     report._local_revision = revision_for(entry["payload"])
                 media = {path: digest for entry in self.entries.values()
                          for path, digest in entry.get("media", {}).items()}
+            if deleted_ids:
+                try:
+                    self.backend.purge_reports(deleted_ids)
+                except Exception:
+                    warnings.append("Obras excluídas permanecem ocultas; limpeza remota pendente.")
             # Downloads fora do lock de edição; a fila de envio continua serializada.
             for relative, digest in media.items():
                 target = self._target_photo(relative)
@@ -259,6 +322,7 @@ class CloudRepository(DraftRepository):
                     remote = self.backend.get_report(report.id)
                     if remote:
                         with self.lock:
+                            self.apply_registration(report)
                             self._restore_record(report.id, remote)
                 except Exception:
                     pass  # A cópia está na fila; preservar também o original pendente.

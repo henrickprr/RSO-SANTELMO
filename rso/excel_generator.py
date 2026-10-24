@@ -158,6 +158,7 @@ class ExcelGenerator:
 
     def generate(self, report: Report, destination: str | Path,
                  plan: list[PagePlan] | None = None) -> Path:
+        self.repository.apply_registration(report)
         report.validate()
         # `plan` é mantido para compatibilidade com chamadas antigas. O XLSX
         # monta seu próprio fluxo e não usa as quebras recebidas do plano PDF.

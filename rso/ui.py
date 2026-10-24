@@ -14,12 +14,14 @@ from uuid import uuid4
 import flet as ft
 from PIL import Image
 
+from . import __version__
 from .excel_generator import ExcelGenerator
 from .firebase_backend import CloudConflict
 from .models import DAYS, WEATHER, Report, ResourceRow, ValidationError, parse_date
 from .pdf_generator import PDFGenerator
 from .project_catalog import ProjectCatalog
-from .projects import COMMON, ProjectProfile, apply_project, is_fixed_field
+from .projects import COMMON, FIXED_FIELDS, ProjectProfile, apply_project, is_fixed_field
+from .project_state import ProjectDeleted, project_key
 from .settings import ASSETS
 from .storage import DraftRepository, atomic_write
 
@@ -37,7 +39,7 @@ class ObraTab(ft.Column):
     """
 
     def __init__(self, page: ft.Page, report: Report, repository: DraftRepository,
-                 on_name_change=None, on_copy=None):
+                 on_name_change=None, on_copy=None, on_project_change=None, on_delete=None):
         super().__init__(expand=True, spacing=0)
         self.host_page = page
         apply_project(report)
@@ -45,6 +47,8 @@ class ObraTab(ft.Column):
         self.repository = repository
         self.on_name_change = on_name_change
         self.on_copy = on_copy
+        self.on_project_change, self.on_delete = on_project_change, on_delete
+        self.registration_busy = False
         self.stale = False
         self.fields: dict[str, ft.TextField] = {}
         self.status = ft.Text("Rascunho • pronto para editar", size=12, color=MUTED)
@@ -64,6 +68,65 @@ class ObraTab(ft.Column):
         self.export_picker = ft.FilePicker(on_result=self.on_export_destination)
         page.overlay.extend([self.image_picker, self.export_picker])
         self.build_form()
+
+    def refresh_registration(self):
+        self.repository.apply_registration(self.report)
+        draft = self.report.registration_draft
+        for name in FIXED_FIELDS - {"template"}:
+            control = self.fields[name]
+            fixed = is_fixed_field(self.report, name)
+            control.value = draft[name] if draft is not None else getattr(self.report, name)
+            control.disabled = control.read_only = fixed
+            control.on_change = None if fixed else self.bind(self.report, name)
+            control.bgcolor = "#F3F5F2" if fixed else "white"
+        self.lock_information.value = draft is None
+        self.cancel_registration_button.visible = draft is not None
+        if self.on_name_change:
+            self.on_name_change(self.report)
+
+    async def toggle_registration(self, event):
+        if self.registration_busy:
+            return
+        self.registration_busy = True
+        previous, previous_base = self.report.registration_draft, self.report.registration_base
+        self.lock_information.disabled = self.form.disabled = True
+        self.host_page.update()
+        try:
+            catalog = ProjectCatalog(self.repository)
+            if event.control.value:
+                await asyncio.to_thread(catalog.confirm_edit, self.report)
+                if self.on_project_change:
+                    self.on_project_change()
+                self.toast("Informações corrigidas e fixadas para esta obra.")
+            else:
+                catalog.begin_edit(self.report)
+            self.refresh_registration()
+            self.refresh_cloud_status()
+        except (OSError, ValueError) as exc:
+            if previous is None:
+                self.report.registration_draft, self.report.registration_base = previous, previous_base
+            if isinstance(exc, CloudConflict):
+                self.stale = self.copy_button.visible = True
+            self.lock_information.value = self.report.registration_draft is None
+            self.toast(str(exc), True)
+        finally:
+            self.registration_busy = False
+            self.lock_information.disabled = self.form.disabled = False
+            self.host_page.update()
+
+    async def cancel_registration(self, event):
+        if self.registration_busy:
+            return
+        previous = self.report.registration_draft
+        previous_base = self.report.registration_base
+        self.report.registration_draft = None
+        self.report.registration_base = ""
+        if not self.commit():
+            self.report.registration_draft = previous
+            self.report.registration_base = previous_base
+            return
+        self.refresh_registration()
+        self.host_page.update()
 
     def toast(self, message: str, error: bool = False) -> None:
         self.host_page.open(ft.SnackBar(ft.Text(message, color="#FFFFFF"),
@@ -139,6 +202,10 @@ class ObraTab(ft.Column):
 
     def bind(self, obj, attribute: str):
         async def changed(event):
+            if obj is self.report and attribute in FIXED_FIELDS and self.report.registration_draft is not None:
+                self.report.registration_draft[attribute] = event.control.value
+                self.commit()
+                return
             setattr(obj, attribute, event.control.value)
             if obj is self.report and attribute in ("start", "end"):
                 self.refresh_day_labels()
@@ -149,10 +216,13 @@ class ObraTab(ft.Column):
 
     def field(self, name: str, label: str, *, multiline: bool = False,
               col=12, hint: str | None = None) -> ft.TextField:
-        control = ft.TextField(label=label, value=getattr(self.report, name),
+        draft = self.report.registration_draft
+        control = ft.TextField(label=label,
+                               value=draft[name] if draft is not None and name in draft else getattr(self.report, name),
                                on_change=None if is_fixed_field(self.report, name) else self.bind(self.report, name),
                                read_only=is_fixed_field(self.report, name),
                                disabled=is_fixed_field(self.report, name), col=col,
+                               max_length=(80 if name == "tab_name" else 400) if name in FIXED_FIELDS else None,
                                multiline=multiline, min_lines=3 if multiline else 1,
                                max_lines=6 if multiline else 1, border_radius=9,
                                border_color="#D5DDD6", focused_border_color=GREEN,
@@ -300,16 +370,14 @@ class ObraTab(ft.Column):
         ], run_spacing=16)]
         self.form = ft.Column([
             self.section("01", "Identificação da obra",
-                "Dados preenchidos automaticamente a partir do cadastro da obra."
-                if self.report.project_profile else
-                "Cadastro fixo por obra; endereços e cliente do Átrio podem ser preenchidos.",
+                "Desmarque Fixar Informações para corrigir os dados desta obra.",
                 metadata, f"{self.report.id}-metadata"),
             self.section("02", "Mão de obra e equipamentos", "Adicione as equipes e confira os totais calculados.", resources, f"{self.report.id}-resources"),
             self.section("03", "Atividades diárias", "Registre os serviços realizados de segunda a sexta-feira.", activities, f"{self.report.id}-activities"),
             self.section("04", "Materiais e registro fotográfico",
                          "Adicione as fotos ao longo da semana; elas permanecem neste relatório.",
                          photos, f"{self.report.id}-photos"),
-            self.section("05", "Responsabilidade e exportação", "Responsáveis, CREA, ART e alvará fixos conforme o modelo da obra.", footer, f"{self.report.id}-footer"),
+            self.section("05", "Responsabilidade e exportação", "Dados da assinatura desta obra; desmarque Fixar Informações para corrigir.", footer, f"{self.report.id}-footer"),
             ft.Container(height=12),
         ], expand=True, scroll=ft.ScrollMode.AUTO, spacing=16)
 
@@ -336,7 +404,23 @@ class ObraTab(ft.Column):
             async def scroll(event, key=key):
                 self.form.scroll_to(key=f"{self.report.id}-{key}", duration=250)
             navigation.append(ft.TextButton(label, on_click=scroll, style=ft.ButtonStyle(color=GREEN)))
-        self.controls = [ft.Container(ft.Row(navigation, wrap=True, spacing=0), padding=ft.padding.only(top=6, bottom=4)),
+        async def delete(event):
+            if self.on_delete:
+                await self.on_delete(self.report)
+
+        self.lock_information = ft.Checkbox(label="Fixar Informações",
+            value=self.report.registration_draft is None, on_change=self.toggle_registration,
+            active_color=GREEN)
+        self.delete_button = ft.TextButton("Excluir obra", icon=ft.Icons.DELETE_OUTLINE,
+            on_click=delete, disabled=self.on_delete is None,
+            style=ft.ButtonStyle(color="#A33232"))
+        self.cancel_registration_button = ft.TextButton("Cancelar edição",
+            visible=self.report.registration_draft is not None, on_click=self.cancel_registration)
+        self.controls = [ft.Row([self.lock_information,
+                            ft.Text("Desmarque para editar; marque novamente para aplicar a correção.",
+                                    size=12, color=MUTED), self.cancel_registration_button,
+                            self.delete_button], wrap=True),
+                         ft.Container(ft.Row(navigation, wrap=True, spacing=0), padding=ft.padding.only(top=6, bottom=4)),
                          self.form,
                          ft.Container(content=ft.ResponsiveRow([
                              ft.Row([self.busy_indicator, self.status], spacing=8,
@@ -591,12 +675,13 @@ class ObraTab(ft.Column):
     async def export(self, extension: str) -> None:
         if self.busy:
             return
-        snapshot = Report.from_dict(self.report.to_dict())
         try:
+            self.repository.apply_registration(self.report)
+            snapshot = Report.from_dict(self.report.to_dict())
             snapshot.validate()
             if self.pending_uploads or self.importing_photos:
                 raise ValidationError("Aguarde o envio das fotos antes de exportar.")
-        except ValidationError as exc:
+        except (ValidationError, ProjectDeleted) as exc:
             self.toast(str(exc), True)
             return
         if not self.commit():
@@ -658,6 +743,8 @@ class RSOApp:
         self.views: dict[str, ObraTab] = {}
         self.connected = True
         self._status_task = None
+        self.empty_message = ft.Text("Nenhuma obra cadastrada. Clique em Adicionar obra para começar.",
+                                     color=MUTED, visible=False)
 
     async def mount(self):
         page = self.page
@@ -694,7 +781,8 @@ class RSOApp:
             ft.Row([ft.Image(src_base64=logo, width=126, height=56, fit=ft.ImageFit.CONTAIN),
                     ft.Container(width=4),
                     ft.Column([ft.Text("Relatórios de obra", size=27, weight=ft.FontWeight.W_600, color=INK),
-                               ft.Text("A semana documentada. Cada obra no seu lugar.", size=13, color=MUTED)],
+                               ft.Text("A semana documentada. Cada obra no seu lugar.", size=13, color=MUTED),
+                               ft.Text(f"Versão {__version__}", size=12, color=GREEN)],
                                expand=True, spacing=3),
                     ], spacing=12),
             ft.Row([
@@ -713,13 +801,14 @@ class RSOApp:
                         visible=self.repository.cloud_enabled or
                                 os.environ.get("RSO_STORAGE_MODE") == "ephemeral"),
             ], wrap=True, visible=bool(page.web)),
-            self.tabs,
+            self.empty_message, self.tabs,
         ], expand=True, spacing=14))
-        if self.repository.cloud_enabled:
-            page.on_disconnect = self.disconnected
-            page.on_close = self.disconnected
-            page.on_connect = self.reconnected
-            self._status_task = page.run_task(self.watch_sync)
+        self.empty_message.visible = not self.views
+        page.on_disconnect = self.disconnected
+        page.on_close = self.disconnected
+        page.on_connect = self.reconnected
+        self._status_task = page.run_task(self.watch_sync)
+        page.update()
         if self.repository.warnings:
             recovery_dialog = ft.AlertDialog(title=ft.Text("Recuperação de rascunhos"),
                 content=ft.Text("\n".join(self.repository.warnings)),
@@ -740,7 +829,7 @@ class RSOApp:
     async def watch_sync(self):
         while self.connected:
             await asyncio.sleep(1)
-            changed = False
+            changed = self.refresh_projects()
             for view in list(self.views.values()):
                 before = (view.status.value, view.copy_button.visible)
                 view.refresh_cloud_status()
@@ -759,9 +848,78 @@ class RSOApp:
                 tab.text = report.tab_name or "Nova obra"
 
     def add_tab(self, report: Report):
-        view = ObraTab(self.page, report, self.repository, self.name_changed, self.copied)
+        view = ObraTab(self.page, report, self.repository, self.name_changed, self.copied,
+                       self.refresh_projects, self.delete_project)
+        state = self.repository.project_states.get(project_key(report))
+        view.project_revision = state.revision if state else None
         self.views[report.id] = view
         self.tabs.tabs.append(ft.Tab(text=report.tab_name, content=view))
+        self.empty_message.visible = False
+
+    def refresh_projects(self):
+        changed = False
+        for report_id, view in list(self.views.items()):
+            state = self.repository.project_states.get(project_key(view.report))
+            if state and state.deleted:
+                self.tabs.tabs[:] = [tab for tab in self.tabs.tabs if tab.content is not view]
+                self.views.pop(report_id)
+                for picker in (view.image_picker, view.export_picker):
+                    if picker in self.page.overlay:
+                        self.page.overlay.remove(picker)
+                changed = True
+            elif state and state.revision != view.project_revision:
+                view.project_revision = state.revision
+                view.refresh_registration()
+                changed = True
+        self.empty_message.visible = not self.views
+        if self.tabs.selected_index >= len(self.tabs.tabs):
+            self.tabs.selected_index = max(0, len(self.tabs.tabs) - 1)
+        return changed
+
+    async def delete_project(self, report):
+        key = project_key(report)
+        state = self.repository.project_states.get(key)
+        expected = state.revision if state else None
+        approved_ids = {r.id for r in self.catalog.reports_for(key)}
+        message = ft.Text(f'Excluir a obra “{report.tab_name}” e seus {len(approved_ids)} relatório(s)? '
+            "As fotos vinculadas também serão removidas dos relatórios. "
+            "Para recuperar depois, será necessário um backup anterior.")
+        busy = False
+
+        async def remove(event):
+            nonlocal busy, approved_ids
+            if busy:
+                return
+            current = {r.id for r in self.catalog.reports_for(key)}
+            if current != approved_ids:
+                approved_ids = current
+                message.value = (f"A lista mudou: esta obra agora tem {len(current)} relatório(s). "
+                                 "Clique em Excluir definitivamente para confirmar a lista atual.")
+                self.page.update()
+                return
+            views = [v for v in self.views.values() if project_key(v.report) == key]
+            if any(v.pending_uploads or v.importing_photos or v.busy or v.registration_busy for v in views):
+                message.value = "Aguarde os envios, a exportação ou a correção do cadastro antes de excluir."
+                self.page.update()
+                return
+            busy = confirm.disabled = cancel.disabled = True
+            self.page.update()
+            try:
+                await asyncio.to_thread(self.catalog.delete, key, expected)
+                self.refresh_projects()
+                self.page.close(dialog)
+                self.page.open(ft.SnackBar(ft.Text("Obra e relatórios excluídos.")))
+            except (OSError, ValueError) as exc:
+                message.value = str(exc)
+                busy = confirm.disabled = cancel.disabled = False
+            self.page.update()
+
+        confirm = ft.FilledButton("Excluir definitivamente", on_click=remove,
+                                  style=ft.ButtonStyle(bgcolor="#A33232", color="white"))
+        cancel = ft.TextButton("Cancelar", on_click=lambda e: self.page.close(dialog))
+        dialog = ft.AlertDialog(modal=True, title=ft.Text("Excluir obra"),
+                                content=ft.Container(message, width=480), actions=[cancel, confirm])
+        self.page.open(dialog)
 
     async def new_report(self, event):
         try:
@@ -769,7 +927,10 @@ class RSOApp:
         except ValueError as exc:
             self.page.open(ft.SnackBar(ft.Text(str(exc))))
             return
-        project = ft.Dropdown(label="Obra", value="sintra", width=420,
+        if not choices:
+            self.page.open(ft.SnackBar(ft.Text("Cadastre uma obra usando Adicionar obra.")))
+            return
+        project = ft.Dropdown(label="Obra", value=next(iter(choices)), width=420,
             options=[ft.dropdown.Option(key, name) for key, name in choices.items()])
         async def select_project(event):
             project.value = event.data

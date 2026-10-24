@@ -39,12 +39,14 @@ class ProjectProfile:
     def __post_init__(self):
         for item in fields(self):
             value = getattr(self, item.name)
-            if not isinstance(value, str) or not value.strip() or len(value) > 400:
+            if (not isinstance(value, str) or len(value) > 400
+                    or (not value.strip() and item.name not in {"address", "cliente"})):
                 raise ValueError(f"Preencha um valor válido para {item.name} (até 400 caracteres).")
             object.__setattr__(self, item.name, value.strip())
         if len(self.name) > 80 or not normalized_name(self.name):
             raise ValueError("Informe um nome de obra com até 80 caracteres.")
-        if not self.key.startswith("custom_") or UUID(self.key[7:]).hex != self.key[7:]:
+        if self.key not in PROJECTS and (not self.key.startswith("custom_")
+                                        or UUID(self.key[7:]).hex != self.key[7:]):
             raise ValueError("Identificador inválido no cadastro da obra.")
         if self.template not in ("compact", "wide", "sintra"):
             raise ValueError("Modelo inválido no cadastro da obra.")
@@ -77,11 +79,8 @@ FIXED_FIELDS = frozenset({"tab_name", "obra", "address", "cliente", "responsavel
 
 
 def is_fixed_field(report, name: str) -> bool:
-    if report.project_profile is not None:
-        return name in FIXED_FIELDS
-    if name in ("address", "cliente"):
-        # O usuário autorizou preencher as lacunas dos modelos na interface.
-        return bool(PROJECTS.get(report.project_key, {}).get(name))
+    if report.registration_draft is not None and name != "template":
+        return False
     return name in FIXED_FIELDS
 
 

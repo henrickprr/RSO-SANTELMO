@@ -21,6 +21,7 @@ class PDFGenerator:
 
     def generate(self, report: Report, destination: str | Path,
                  plan: list[PagePlan] | None = None) -> Path:
+        self.repository.apply_registration(report)
         report.validate()
         pages = plan if plan is not None else LayoutEngine(report, self.repository).build()
         pdf = FPDF(unit="pt", format=(PAGE_WIDTH, PAGE_HEIGHT))

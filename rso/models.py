@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from uuid import UUID, uuid4
 
-from .projects import ProjectProfile, apply_project
+from .projects import FIXED_FIELDS, ProjectProfile, apply_project
 
 DAYS = ("Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira")
 DAY_SHORT = ("SEG", "TER", "QUA", "QUI", "SEX")
@@ -59,6 +59,9 @@ class Report:
     id: str = field(default_factory=lambda: uuid4().hex)
     project_key: str = ""
     project_profile: ProjectProfile | None = None
+    # Correções incompletas são salvas sem substituir o cadastro confirmado.
+    registration_draft: dict[str, str] | None = None
+    registration_base: str = ""
     address: str = ""
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     tab_name: str = "Nova obra"
@@ -137,6 +140,8 @@ class Report:
             raise ValidationError("Há identificadores de fotos duplicados no relatório.")
 
     def validate(self) -> None:
+        if self.registration_draft is not None:
+            raise ValidationError("Marque Fixar Informações para confirmar o cadastro antes de exportar.")
         apply_project(self)
         if not self.obra.strip():
             raise ValidationError("Preencha o nome da obra.")
@@ -185,8 +190,13 @@ class Report:
         for f in fields(cls):
             value = getattr(report, f.name)
             if f.name not in {"employees", "contractors", "equipment", "activities", "photos",
-                              "holidays", "photo_columns", "project_profile"} and not isinstance(value, str):
+                              "holidays", "photo_columns", "project_profile", "registration_draft"} and not isinstance(value, str):
                 raise ValidationError(f"Rascunho inválido: campo {f.name}.")
+        if report.registration_draft is not None:
+            draft = report.registration_draft
+            if (not isinstance(draft, dict) or set(draft) != FIXED_FIELDS - {"template"}
+                    or not all(isinstance(v, str) and len(v) <= 400 for v in draft.values())):
+                raise ValidationError("Rascunho do cadastro inválido.")
         if not isinstance(report.activities, list) or len(report.activities) != 5:
             raise ValidationError("O rascunho deve conter cinco atividades diárias.")
         if not all(isinstance(t, str) for t in report.activities):

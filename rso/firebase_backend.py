@@ -17,6 +17,7 @@ import tempfile
 from uuid import UUID, uuid4
 
 from .models import Report, ValidationError
+from .project_state import ProjectChanged, ProjectDeleted, ProjectState, project_key
 
 CHUNK_BYTES = 700 * 1024
 MAX_PHOTO_BYTES = 30 * 1024 * 1024
@@ -84,7 +85,44 @@ class FirebaseBackend:
         space = client.collection("rso_workspaces").document(config.namespace)
         self.reports = space.collection("reports")
         self.photos = space.collection("photos")
+        self.projects = space.collection("projects")
         self._known_photos: set[str] = set()
+
+    def list_projects(self) -> dict[str, ProjectState]:
+        states = {}
+        for document in self.projects.stream(timeout=15, retry=None):
+            state = ProjectState.from_dict(document.to_dict())
+            if state.key != document.id:
+                raise ValidationError("Cadastro Firebase inconsistente.")
+            states[state.key] = state
+        return states
+
+    def put_project(self, state: ProjectState, expected: str | None) -> None:
+        from google.cloud import firestore
+        reference = self.projects.document(state.key)
+
+        @firestore.transactional
+        def store(transaction):
+            snapshot = reference.get(transaction=transaction, timeout=15, retry=None)
+            current = snapshot.to_dict() or {}
+            if current.get("revision") == state.revision:
+                return
+            if current.get("deleted"):
+                raise ProjectDeleted()
+            if current.get("revision") != expected:
+                raise ProjectChanged()
+            transaction.set(reference, state.to_dict())
+        store(self.client.transaction(max_attempts=3))
+
+    def purge_reports(self, ids: list[str]) -> None:
+        # Só os documentos já identificados como pertencentes às obras excluídas.
+        # Fotos por hash podem ser compartilhadas: não remover seus blocos aqui.
+        for start in range(0, len(ids), 200):
+            batch = self.client.batch()
+            for report_id in ids[start:start + 200]:
+                UUID(report_id)
+                batch.delete(self.reports.document(report_id))
+            batch.commit(timeout=15, retry=None)
 
     def list_reports(self) -> dict[str, dict]:
         result = {}
@@ -168,13 +206,18 @@ class FirebaseBackend:
 
         if len(payload.encode("utf-8")) + len(json.dumps(media).encode()) > MAX_REPORT_BYTES:
             raise ValidationError("Os textos deste relatório excedem o limite do Firebase (800 KB).")
-        report_id = json.loads(payload)["id"]
+        report = Report.from_dict(json.loads(payload))
+        report_id = report.id
         UUID(report_id)
         revision = revision_for(payload)
         reference = self.reports.document(report_id)
 
         @firestore.transactional
         def store(transaction):
+            state = self.projects.document(project_key(report)).get(
+                transaction=transaction, timeout=15, retry=None).to_dict()
+            if state and state.get("deleted"):
+                raise ProjectDeleted()
             current = reference.get(transaction=transaction, timeout=15, retry=None)
             existing = current.to_dict() if current.exists else {}
             if existing.get("revision") == revision:
@@ -205,6 +248,8 @@ def friendly_cloud_error(error: Exception) -> str:
         return "Confira se o banco Firestore (default) foi criado no projeto configurado."
     if isinstance(error, CloudConflict):
         return "Outra sessão alterou este relatório. Preserve sua edição como uma cópia."
+    if isinstance(error, (ProjectChanged, ProjectDeleted)):
+        return str(error)
     if isinstance(error, ValidationError):
         return str(error)
     return "Firebase indisponível. Salvamento pendente; uma nova tentativa será feita."
