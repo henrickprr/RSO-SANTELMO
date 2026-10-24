@@ -1,4 +1,4 @@
-# RSO Santelmo — versão 1.7.0 — cadastro de obras + Firebase Spark
+# RSO Santelmo — versão 1.8.0 — corrigir e excluir obras
 
 Aplicativo Python/Flet para registrar e exportar Relatórios Semanais de Obra.
 Inclui quatro abas iniciais, botão **Adicionar obra** com cadastro único,
@@ -81,17 +81,35 @@ Use **Adicionar obra** para cadastrar um empreendimento sem alterar o código:
 3. Na semana seguinte, clique **Novo relatório** e escolha a mesma obra. Cabeçalho e
    rodapé são preenchidos automaticamente; atividades e fotos começam vazias.
 
-Os dados cadastrados ficam somente para leitura nos relatórios. Os dados da empresa
-Santelmo e a identidade visual continuam seguindo o modelo. Não há edição do cadastro
-permanente na interface desta versão. Obras com nomes equivalentes não são cadastradas
+Os dados cadastrados ficam somente para leitura quando **Fixar Informações** está
+marcado. Para corrigir, desmarque, edite o cabeçalho e a assinatura, e marque novamente.
+A correção vale para os relatórios existentes e futuros dessa obra. Os dados semanais
+e as fotos são preservados. Isso também funciona para as quatro obras dos modelos.
+Enquanto estiver desbloqueado, o texto em edição é salvo como rascunho; a exportação
+é liberada ao fixar novamente. **Cancelar edição** recupera o cadastro já confirmado.
+
+Os dados da empresa Santelmo e a identidade visual continuam seguindo o modelo.
+Obras com nomes equivalentes não são cadastradas
 duas vezes; use Novo relatório para criar outra semana.
 
 O cadastro acompanha os relatórios em JSON, backup e Firebase. Com Firebase configurado,
 aguarde **Salvo no Firebase**; sem ele, o Render Free exige backup para preservar as obras.
 Restaurar um backup recupera também as opções de obras em **Novo relatório**.
 
+**Excluir obra** remove o cadastro e todos os relatórios semanais dessa obra depois
+de uma confirmação com o nome e a quantidade de relatórios. **Cancelar** mantém os
+dados. Faça backup antes de excluir se quiser poder recuperar depois. A exclusão
+não altera as outras obras, e uma aba antiga não pode recriar o cadastro removido.
+Restaurar um backup anterior de uma obra excluída cria uma nova identidade para a
+cópia recuperada. PDFs/XLSX já baixados para seu computador não são alterados.
+
+Com Firebase, confirmar uma correção ou exclusão exige conexão: o app aguarda a
+transação no Firestore antes de confirmar. Se falhar, a correção permanece como
+rascunho e pode ser tentada novamente. O salvamento do diário continua automático.
+As regras e o plano gratuito permanecem os mesmos.
+
 As quatro obras iniciais usam os dados do arquivo `rso/projects.py`.
-Os campos ficam visíveis, mas não podem ser digitados. Cabeçalho da Santelmo,
+Os campos ficam visíveis e podem ser corrigidos ao desmarcar Fixar Informações. Cabeçalho da Santelmo,
 responsável técnico, engenheiro, CREA, ART, alvará e identificação da obra seguem
 os PDFs. ART e alvará são específicos de cada obra, não compartilhados entre elas.
 
@@ -105,8 +123,8 @@ os PDFs. ART e alvará são específicos de cada obra, não compartilhados entre
 Responsável técnico: **ENGº DANILO JOSÉ FONSECA LIMA**. Engenheiro no rodapé:
 **DANILO FONSECA**, CREA **1915794803**.
 
-**Exceções autorizadas:** os endereços das quatro obras e o cliente da Casa Átrio
-continuam editáveis, pois não constam nos modelos. O endereço do cabeçalho é o da
+Os endereços das quatro obras e o cliente da Casa Átrio podem ser preenchidos ao
+desmarcar Fixar Informações, pois não constam nos modelos. O endereço do cabeçalho é o da
 empresa, não o endereço da obra. Os valores informados nessas exceções são salvos
 no rascunho e preservados no backup. Quando preenchido, o endereço acompanha o
 campo Obra na exportação; textos longos usam o complemento, sem serem descartados.
@@ -127,11 +145,11 @@ campo Obra na exportação; textos longos usam o complemento, sem serem descarta
 6. Na sexta, exporte PDF/XLSX. Use **Novo relatório** para a semana seguinte.
    Sem Firebase, baixe também um backup antes de sair do Render Free.
 
-Para adicionar outra obra, use **Adicionar obra**. Para corrigir informações dos quatro
-cadastros iniciais, atualize `rso/projects.py`. Os novos relatórios começam sem atividades, equipes extras,
+Para adicionar outra obra, use **Adicionar obra**. Para corrigir informações de qualquer
+cadastro, desmarque **Fixar Informações**. Os novos relatórios começam sem atividades, equipes extras,
 fotos ou percentuais históricos. Os rascunhos antigos reconhecidos pelo nome da
 obra recebem o cadastro fixo atual, preservando informações semanais e as exceções
-editáveis. Os valores antigos do cadastro são substituídos pelos dados dos modelos.
+editáveis. Uma correção confirmada no aplicativo tem prioridade sobre os dados dos modelos.
 Faça backup antes de atualizar. Rascunhos de obras desconhecidas continuam legíveis.
 
 ## Fotografias gerais da semana
@@ -293,7 +311,9 @@ rso/web_security.py       Configuração e autenticação HTTP/WebSocket
 rso/backup.py             Backup portátil e restauração como novas obras
 rso/backup_web.py         Download/upload do ZIP com autenticação
 rso/models.py             Report, ResourceRow, Photo e validação
-rso/projects.py           Cadastro fixo de cada obra e exceções editáveis
+rso/projects.py           Dados dos modelos e estrutura de cadastro
+rso/project_catalog.py    Cadastro, correção e exclusão de obras
+rso/project_state.py      Revisões e marcadores de exclusão
 rso/storage.py            JSON atômico, backup e importação de imagens
 rso/firebase_backend.py   Firestore Spark: textos, fotos em partes e revisões
 rso/cloud_repository.py   Cache, fila, salvamento automático e recuperação

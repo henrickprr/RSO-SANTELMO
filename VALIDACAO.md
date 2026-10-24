@@ -1,8 +1,28 @@
-# Validação — versão 1.7.0
+# Validação — versão 1.8.0
 
-- 145 testes automatizados aprovados, incluindo 8 com SDK no emulador oficial do
+- 162 testes automatizados aprovados, incluindo 12 com SDK no emulador oficial do
   Firestore Standard v1.22.0. Lint sem ocorrências. Em execução sem emulador, esses
-  8 testes de integração são ignorados; os demais 137 continuam executáveis.
+  12 testes de integração são ignorados; os demais 150 continuam executáveis.
+- Fixar Informações libera cabeçalho e assinatura; confirmar reaproveita o cadastro
+  corrigido em semanas existentes e futuras. Rascunhos parciais sobrevivem ao reinício;
+  cancelar a edição preserva as atividades. PDF/XLSX usam cliente e CREA corrigidos.
+- Correções das quatro obras originais também são preservadas em backup/restauração.
+  A transação do Firestore rejeita uma correção baseada em revisão antiga.
+- Exclusão remove todas as semanas da obra, preserva outras obras e fotos locais
+  compartilhadas, bloqueia abas antigas e não recria os cadastros após excluir tudo.
+- Marcador remoto impede recriação por gravação atrasada; os documentos excluídos
+  são removidos. Limpeza interrompida é retomada em nova abertura. Firebase sem conexão
+  não produz falsa confirmação de correção ou exclusão; a correção fica recuperável.
+- Cancelar o diálogo de exclusão não altera dados. Restaurar um backup anterior
+  recupera a obra com outra identidade, sem desfazer o marcador de exclusão.
+- Falha na gravação do diário depois de confirmar o cadastro mantém a correção
+  recuperável e permite repetir a confirmação sem duplicar a alteração.
+- Chromium 1.8.0 com Firestore emulado: desmarcar Fixar Informações, editar cliente,
+  recarregar com rascunho preservado, corrigir engenheiro/CREA e fixar novamente.
+  Outra semana da mesma obra exportou PDF/XLSX com o cadastro corrigido; o backup
+  preservou as atividades. Cancelar a exclusão manteve as abas; confirmar removeu
+  as duas semanas selecionadas e preservou Casa Bosque. Com cache vazio, a obra
+  excluída não reapareceu nas abas nem em Novo relatório.
 - Adicionar obra: cadastro único, rejeição de nomes repetidos (acentos/maiúsculas/espaços),
   submissões simultâneas, isolamento entre semanas e dados permanentes somente para leitura.
 - Cadastro novo preservado após reinício local, backup/restauração e recuperação do

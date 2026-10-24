@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backup e restauração · RSO Santelmo</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f3f5f2;color:#202e26;font:16px/1.55 system-ui,sans-serif}
+    main{max-width:780px;margin:48px auto;padding:0 20px}h1{font-size:30px;line-height:1.2}h2{font-size:21px}
+    .brand{color:#315d40;letter-spacing:.12em;font-size:12px;font-weight:700}
+    section{background:white;border:1px solid #dce2da;border-radius:16px;padding:26px;margin:22px 0}
+    .note{background:#fff5e3;padding:16px;border-radius:10px;color:#775019}
+    button,.button{display:inline-block;border:0;border-radius:9px;background:#315d40;color:white;padding:12px 19px;font:inherit;text-decoration:none;cursor:pointer}
+    button:disabled{opacity:.6;cursor:wait}input{display:block;width:100%;margin:18px 0}
+    #status{white-space:pre-wrap;margin-top:18px}a{color:#315d40}small{color:#69756e}
+  </style>
+</head>
+<body><main>
+  <div class="brand">SANTELMO ENGENHARIA</div>
+  <h1>Guarde o trabalho da semana</h1>
+  <p class="note">{{STORAGE_NOTICE}}</p>
+  <section>
+    <h2>Baixar backup</h2>
+    <p>Guarda os rascunhos de todas as obras, as atividades, as legendas e as fotos ainda presentes
+      nos formulários. Rascunhos incompletos também entram no backup.</p>
+    <p>Antes de baixar, aguarde o fim dos uploads e a indicação de salvamento no formulário.
+      Confirme que o ZIP chegou à pasta de downloads do seu computador.</p>
+    <a class="button" href="/backup/download" download>Baixar backup ZIP</a>
+    <p><small>Até 100 MB. PDFs, planilhas e fotos removidas do formulário não entram;
+      os relatórios podem ser exportados novamente depois da restauração.</small></p>
+  </section>
+  <section>
+    <h2>Restaurar backup</h2>
+    <p>Selecione o ZIP baixado neste aplicativo. A restauração cria novas abas com o sufixo
+      “(restaurada)” e preserva as obras que já estão abertas.</p>
+    <form id="restore">
+      <label for="file">Arquivo de backup</label>
+      <input id="file" name="file" type="file" accept=".zip,application/zip" required>
+      <button id="submit" type="submit">Restaurar obras</button>
+      <div id="status" role="status" aria-live="polite"></div>
+    </form>
+  </section>
+  <p><a href="/">Voltar ao aplicativo</a> · Feche janelas antigas de edição antes de continuar.</p>
+</main>
+<script>
+  document.getElementById('restore').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const file = document.getElementById('file').files[0];
+    const status = document.getElementById('status');
+    const button = document.getElementById('submit');
+    if (!file) return;
+    if (file.size > 100 * 1024 * 1024) { status.textContent = 'O backup deve ter até 100 MB.'; return; }
+    button.disabled = true;
+    status.textContent = 'Enviando e restaurando o backup…';
+    try {
+      const response = await fetch('/backup/restore', {
+        method: 'POST', credentials: 'same-origin',
+        headers: {'Content-Type': 'application/zip'}, body: file
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || 'Falha na restauração.');
+      status.textContent = result.detail;
+    } catch (error) {
+      status.textContent = 'Não foi possível concluir: ' + error.message;
+    } finally { button.disabled = false; }
+  });
+</script>
+</body>
+</html>

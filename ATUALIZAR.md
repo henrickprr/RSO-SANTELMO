@@ -1,4 +1,19 @@
-# Atualização 1.7.0 — botão Adicionar obra
+# Atualização 1.8.0 — Fixar Informações e Excluir obra
+
+- **Fixar Informações** fica acima do formulário de cada aba. Desmarque para editar
+  nome, descrição, cliente, endereço, responsáveis, CREA, ART e alvará. Marque de novo
+  para aplicar a correção a essa obra, incluindo os relatórios existentes e futuros.
+- O texto em edição é salvo como rascunho, mesmo incompleto. **Cancelar edição**
+  restaura o cadastro confirmado. Para exportar, fixe as informações novamente.
+- **Excluir obra** pede confirmação com o nome e a quantidade de relatórios. Remove
+  todas as semanas da obra selecionada. Cancelar não altera dados. A exclusão fica
+  registrada para que as abas antigas não recriem a obra ao salvar ou reiniciar.
+- A correção e a exclusão são confirmadas no Firebase quando ele estiver configurado.
+  Se estiver indisponível, o aplicativo informa a falha e permite tentar novamente.
+- Envie o pacote completo, incluindo o novo arquivo `rso/project_state.py`.
+  Não é necessário mudar as regras, as credenciais ou o plano do Firebase.
+
+## Cadastro de obras — recurso preservado
 
 Clique **Adicionar obra**, informe os dados do cabeçalho e da assinatura uma única
 vez e clique **Cadastrar obra**. O primeiro relatório abre automaticamente em uma aba.
@@ -84,7 +99,7 @@ já confirmados na nuvem; pendências ainda não sincronizadas dependem do cache
   fotos e as exceções editáveis são preservados.
 
 Para adicionar outro cadastro, use o botão **Adicionar obra**. Para corrigir as
-informações dos quatro cadastros originais, altere `rso/projects.py` e publique novamente.
+informações de uma obra existente, desmarque **Fixar Informações**, edite e marque novamente.
 Não preencha endereços inexistentes nos modelos
 com o endereço da empresa: são informações diferentes.
 

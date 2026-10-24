@@ -1,8 +1,22 @@
-# Firebase gratuito — salvamento automático do RSO 1.7.0
+# Firebase gratuito — salvamento automático do RSO 1.8.0
 
 Os cadastros feitos em **Adicionar obra** acompanham os relatórios sincronizados.
 Depois de recuperar os dados da nuvem, a obra volta a aparecer em **Novo relatório**.
 A configuração e as regras são as mesmas da versão 1.6.0.
+
+Correções confirmadas com **Fixar Informações** e exclusões ficam em
+`rso_workspaces/{namespace}/projects/{obra}`. A coleção é criada pelo app; não precisa
+ser criada manualmente. São transações com controle de revisão: uma correção antiga
+não substitui outra mais recente. A exclusão deixa um pequeno marcador permanente
+que bloqueia gravações de sessões antigas e impede a recriação da obra ao reiniciar.
+Os documentos dos relatórios excluídos são apagados; se a limpeza for interrompida,
+a próxima abertura tenta novamente e a obra continua fora da interface.
+
+Os blocos de imagens por hash podem ser compartilhados entre relatórios e são
+mantidos no Firestore para não danificar outras cópias. Excluir uma obra remove suas
+referências, mas não libera automaticamente esse espaço de imagens na cota gratuita.
+As fotos locais sem referências em outros relatórios são removidas.
+Uma restauração explícita de backup recupera a obra excluída com uma nova identidade.
 
 Use **Render Free + Firebase Spark**, sem cadastrar faturamento. Esta versão usa
 somente **Cloud Firestore Standard, banco `(default)`**. Não crie Cloud Storage,
