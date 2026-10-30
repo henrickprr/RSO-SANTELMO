@@ -1,4 +1,4 @@
 """Relatórios Semanais de Obra da Santelmo: desktop, navegador e Render."""
 
-__version__ = "1.9.0"
+__version__ = "1.10.0"
 

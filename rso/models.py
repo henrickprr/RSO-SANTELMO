@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
+from zoneinfo import ZoneInfo
 
 from .projects import FIXED_FIELDS, ProjectProfile, apply_project
 
@@ -52,6 +53,14 @@ class Photo:
     id: str = field(default_factory=lambda: uuid4().hex)
     # Campo legado dos JSONs antigos. Fotos atuais são gerais da semana; dia não é exibido.
     day: int | None = None
+    # Identidade do bloco, independente do texto do título.
+    block_id: str = ""
+
+
+@dataclass
+class PhotoBlock:
+    title: str = ""
+    id: str = field(default_factory=lambda: uuid4().hex)
 
 
 @dataclass
@@ -84,6 +93,7 @@ class Report:
     materials: str = ""
     notes: str = ""
     photos: list[Photo] = field(default_factory=list)
+    photo_blocks: list[PhotoBlock] = field(default_factory=list)
     engineer: str = ""
     crea: str = ""
     art: str = ""
@@ -95,7 +105,8 @@ class Report:
     @classmethod
     def new(cls, name: str, template: str = "compact", *,
             profile: ProjectProfile | None = None) -> Report:
-        monday = date.today() - timedelta(days=date.today().weekday())
+        current = datetime.now(ZoneInfo("America/Fortaleza")).date()
+        monday = current - timedelta(days=current.weekday())
         report = cls(
             tab_name=profile.name if profile else name, project_profile=profile,
             obra=f"EXECUÇÃO DE EDIFICAÇÃO RESIDENCIAL UNIFAMILIAR - {name.upper()}",
@@ -128,32 +139,94 @@ class Report:
         start, end = parse_date(self.start), parse_date(self.end)
         return [i for i, day in enumerate(self.week_dates()) if start <= day <= end]
 
-    def add_photo(self, photo: Photo, day: int | None = None) -> None:
+    def add_photo(self, photo: Photo, day: int | None = None, *, block_id: str = "") -> None:
         if any(p.id == photo.id for p in self.photos):
             raise ValidationError("Esta foto já foi adicionada ao relatório.")
+        if block_id:
+            self.ensure_photo_blocks()
+            block = self.photo_block(block_id)
+            photo.block_id, photo.caption = block.id, block.title
         # 'day' só é preservado para compatibilidade de JSONs antigos, sem efeito no relatório.
         photo.day = day
         self.photos.append(photo)
+        if block_id:
+            self.order_photo_blocks()
+
+    def photo_block(self, block_id: str) -> PhotoBlock:
+        for block in self.photo_blocks:
+            if block.id == block_id:
+                return block
+        raise ValidationError("O bloco de fotos não existe mais. Selecione outro bloco.")
+
+    def ensure_photo_blocks(self) -> None:
+        """Migrar fotos antigas uma vez, sem unir os novos blocos pelo título.
+
+        IDs determinísticos tornam a conversão igual em duas sessões que abrem
+        o mesmo rascunho antigo. IDs e títulos novos ficam salvos no JSON/Firebase.
+        """
+        previous = None
+        for photo in self.photos:
+            if photo.block_id:
+                self.photo_block(photo.block_id)
+                previous = None
+                continue
+            title = photo.caption.strip() or "REGISTRO DA SEMANA"
+            if previous is None or (previous.title.strip() or "REGISTRO DA SEMANA") != title:
+                key = uuid5(NAMESPACE_URL, f"rso:{self.id}:photo-block:{photo.id}").hex
+                previous = PhotoBlock(title=photo.caption, id=key)
+                self.photo_blocks.append(previous)
+            photo.block_id = previous.id
+
+    def add_photo_block(self, title: str = "") -> PhotoBlock:
+        self.ensure_photo_blocks()
+        block = PhotoBlock(title=title)
+        self.photo_blocks.append(block)
+        return block
+
+    def rename_photo_block(self, block_id: str, title: str) -> None:
+        self.photo_block(block_id).title = title
+        for photo in self.photos:
+            if photo.block_id == block_id:
+                photo.caption = title  # Preservar a legenda nos dados portáteis.
+
+    def order_photo_blocks(self) -> None:
+        positions = {block.id: i for i, block in enumerate(self.photo_blocks)}
+        # Ordenação estável: a ordem manual das fotos dentro do bloco é mantida.
+        self.photos.sort(key=lambda photo: positions[photo.block_id])
+
+    def split_photo_block(self, photo_id: str) -> PhotoBlock:
+        """Esta foto e as seguintes passam a ter um novo título independente."""
+        self.ensure_photo_blocks()
+        photo = next(p for p in self.photos if p.id == photo_id)
+        source = self.photo_block(photo.block_id)
+        members = [p for p in self.photos if p.block_id == source.id]
+        index = members.index(photo)
+        if index == 0:
+            raise ValidationError("Esta já é a primeira foto do bloco. Edite o título acima dela.")
+        block = PhotoBlock()
+        self.photo_blocks.insert(self.photo_blocks.index(source) + 1, block)
+        for member in members[index:]:
+            member.block_id, member.caption = block.id, ""
+        self.order_photo_blocks()
+        return block
 
     def photo_groups(self) -> list[tuple[str, list[Photo]]]:
-        """Atividades na ordem escolhida, sem limite de fotos por atividade.
-
-        Mantém o formato dos rascunhos/Firebase existentes: fotos consecutivas
-        com a mesma legenda pertencem à mesma atividade. Duas colunas definem
-        somente a quantidade de imagens POR LINHA na impressão.
-        """
-        groups: list[tuple[str, list[Photo]]] = []
+        """Blocos independentes, com qualquer quantidade de fotos por título."""
+        self.ensure_photo_blocks()
+        members: dict[str, list[Photo]] = {block.id: [] for block in self.photo_blocks}
         for photo in self.photos:
-            title = photo.caption.strip() or "REGISTRO DA SEMANA"
-            if groups and groups[-1][0] == title:
-                groups[-1][1].append(photo)
-            else:
-                groups.append((title, [photo]))
-        return groups
+            members[photo.block_id].append(photo)
+        return [(block.title.strip() or "REGISTRO DA SEMANA", members[block.id])
+                for block in self.photo_blocks]
 
     def validate_photos(self) -> None:
         if len({p.id for p in self.photos}) != len(self.photos):
             raise ValidationError("Há identificadores de fotos duplicados no relatório.")
+        block_ids = {block.id for block in self.photo_blocks}
+        if len(block_ids) != len(self.photo_blocks) or "" in block_ids:
+            raise ValidationError("Há identificadores de blocos inválidos no relatório.")
+        if any(p.block_id and p.block_id not in block_ids for p in self.photos):
+            raise ValidationError("Uma foto está vinculada a um bloco inexistente.")
 
     def validate(self) -> None:
         if self.registration_draft is not None:
@@ -199,13 +272,15 @@ class Report:
                 values[key] = [ResourceRow(**r) for r in values[key]]
         if "photos" in values:
             values["photos"] = [Photo(**p) for p in values["photos"]]
+        if "photo_blocks" in values:
+            values["photo_blocks"] = [PhotoBlock(**b) for b in values["photo_blocks"]]
         report = cls(**values)
         if not isinstance(report.id, str):
             raise ValidationError("Identificador inválido no rascunho.")
         UUID(report.id)
         for f in fields(cls):
             value = getattr(report, f.name)
-            if f.name not in {"employees", "contractors", "equipment", "activities", "photos",
+            if f.name not in {"employees", "contractors", "equipment", "activities", "photos", "photo_blocks",
                               "holidays", "photo_columns", "project_profile", "registration_draft"} and not isinstance(value, str):
                 raise ValidationError(f"Rascunho inválido: campo {f.name}.")
         if report.registration_draft is not None:
@@ -230,6 +305,10 @@ class Report:
                 raise ValidationError("Foto inválida no rascunho.")
             if photo.day is not None and (type(photo.day) is not int or photo.day not in range(5)):
                 raise ValidationError("Dia da foto inválido no rascunho.")
+        for block in report.photo_blocks:
+            if not all(isinstance(getattr(block, f.name), str) for f in fields(PhotoBlock)):
+                raise ValidationError("Bloco de fotos inválido no rascunho.")
+        report.validate_photos()
         apply_project(report)
         return report
 

@@ -17,8 +17,10 @@ from PIL import Image
 from . import __version__
 from .excel_generator import ExcelGenerator
 from .firebase_backend import CloudConflict
-from .models import DAYS, WEATHER, Photo, Report, ResourceRow, ValidationError, parse_date
+from .models import DAYS, WEATHER, PhotoBlock, Report, ResourceRow, ValidationError, parse_date
 from .pdf_generator import PDFGenerator
+from .period_ui import ProjectReportsTab
+from .periods import today
 from .project_catalog import ProjectCatalog
 from .projects import COMMON, FIXED_FIELDS, ProjectProfile, apply_project, is_fixed_field
 from .project_state import ProjectDeleted, project_key
@@ -39,7 +41,8 @@ class ObraTab(ft.Column):
     """
 
     def __init__(self, page: ft.Page, report: Report, repository: DraftRepository,
-                 on_name_change=None, on_copy=None, on_project_change=None, on_delete=None):
+                 on_name_change=None, on_copy=None, on_project_change=None, on_delete=None,
+                 on_period_change=None):
         super().__init__(expand=True, spacing=0)
         self.host_page = page
         apply_project(report)
@@ -48,6 +51,7 @@ class ObraTab(ft.Column):
         self.on_name_change = on_name_change
         self.on_copy = on_copy
         self.on_project_change, self.on_delete = on_project_change, on_delete
+        self.on_period_change = on_period_change
         self.registration_busy = False
         self.stale = False
         self.fields: dict[str, ft.TextField] = {}
@@ -61,8 +65,7 @@ class ObraTab(ft.Column):
         self.importing_photos = False
         self._photo_selection_handled = False
         self._photo_import_lock = asyncio.Lock()
-        self._upload_activity: list[Photo] = []
-        self._upload_caption = ""
+        self._upload_block_id = ""
         self.pending_export: Path | None = None
         self.busy = False
         self.image_picker = ft.FilePicker(on_result=self.on_photos_selected,
@@ -213,8 +216,18 @@ class ObraTab(ft.Column):
                 self.refresh_day_labels()
             if obj is self.report and attribute == "tab_name" and self.on_name_change:
                 self.on_name_change(self.report)
-            self.commit()
+            if self.commit() and obj is self.report and attribute in ("start", "end"):
+                self.period_changed()
         return changed
+
+    def period_changed(self):
+        if self.on_period_change:
+            try:
+                parse_date(self.report.start)
+                parse_date(self.report.end)
+            except ValueError:
+                return
+            self.on_period_change(self.report)
 
     def field(self, name: str, label: str, *, multiline: bool = False,
               col=12, hint: str | None = None) -> ft.TextField:
@@ -244,7 +257,8 @@ class ObraTab(ft.Column):
                 setattr(self.report, name, value)
                 control.error_text = None
                 self.refresh_day_labels()
-                self.commit()
+                if self.commit():
+                    self.period_changed()
 
         picker = ft.DatePicker(first_date=datetime(2000, 1, 1), last_date=datetime(2100, 12, 31),
                                on_change=selected)
@@ -347,17 +361,19 @@ class ObraTab(ft.Column):
                 label=f"Serviços executados • {day}", multiline=True, min_lines=3, max_lines=8,
                 border_radius=9, text_size=14, border_color="#D5DDD6", focused_border_color=GREEN,
                 on_change=change_activity)], spacing=8))
-        self.upload_button = ft.OutlinedButton("Adicionar fotos de uma atividade", icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
-                                               on_click=self.pick_photos)
+        self.upload_button = ft.OutlinedButton("Adicionar novo título e fotos", icon=ft.Icons.ADD,
+                                               on_click=self.add_photo_block)
+        self.add_block_bottom = ft.OutlinedButton("Adicionar novo título e fotos", icon=ft.Icons.ADD,
+                                                   on_click=self.add_photo_block)
         photos = [self.field("materials", "Chegada de materiais", multiline=True,
                              hint="Um material por linha. Ex.: 50 sacos de cimento • 30/09"),
-                  ft.Text("Selecione quantas fotos precisar e informe o nome da atividade uma única vez.",
+                  ft.Text("Crie um bloco para cada título e anexe as fotos correspondentes dentro dele.",
                           color=GREEN, size=13), self.upload_button,
-                  ft.Text("Use Adicionar mais fotos na atividade para continuar durante a semana. "
-                          "O relatório cria novas linhas e páginas, mantendo as proporções e margens.",
+                  ft.Text("Cada bloco tem seu próprio título. Para separar um lote já anexado, "
+                          "use Novo título a partir desta foto.",
                           size=12, color=MUTED),
                   ft.Text("JPG, PNG ou WebP • até 30 MB por foto • rascunhos podem ficar incompletos",
-                          size=12, color=MUTED), self.photo_body]
+                          size=12, color=MUTED), self.photo_body, self.add_block_bottom]
         footer = [ft.ResponsiveRow([
             self.field("engineer", "Engenheiro responsável", col={"xs": 12, "md": 8}),
             self.field("crea", "CREA", col={"xs": 12, "md": 4}),
@@ -505,13 +521,28 @@ class ObraTab(ft.Column):
                                          icon_color=MUTED, on_click=remove))
             body.controls.append(ft.Row(fields, spacing=8))
 
-    async def pick_photos(self, event, *, activity: list[Photo] | None = None):
+    async def add_photo_block(self, event):
+        if self.importing_photos:
+            return
+        block = self.report.add_photo_block()
+        self.render_photos(focus_id=block.id)
+        self.commit()
+        self.scroll_photo_block(block.id)
+
+    def scroll_photo_block(self, block_id: str):
+        if self.form.uid:
+            self.form.scroll_to(key=f"{self.report.id}-photo-block-{block_id}", duration=250)
+
+    async def pick_photos(self, event, *, block: PhotoBlock | None = None):
         if self.importing_photos or self.pending_uploads:
             return
         # Capturar o destino antes de abrir o seletor. Outro lote/aba não pode
         # trocar a atividade enquanto os arquivos estão sendo recebidos.
-        self._upload_activity = list(activity or [])
-        self._upload_caption = self._upload_activity[0].caption if self._upload_activity else ""
+        if block is None:
+            block = self.report.add_photo_block()
+            self.render_photos()
+            self.commit()
+        self._upload_block_id = block.id
         # O navegador fornece streams que só podem ser lidos uma vez. Um seletor
         # novo por lote evita reutilizar streams/comandos antigos após erro ou retry.
         previous = self.image_picker
@@ -532,11 +563,11 @@ class ObraTab(ft.Column):
     def set_importing(self, value: bool) -> None:
         self.importing_photos = value
         self.upload_button.disabled = value
+        self.add_block_bottom.disabled = value
         # Impedir remoção/renomeação/reordenação do destino durante o envio.
         self.photo_body.disabled = value
         if not value:
-            self._upload_activity = []
-            self._upload_caption = ""
+            self._upload_block_id = ""
         self.refresh_cloud_status()
         self.host_page.update()
 
@@ -595,15 +626,9 @@ class ObraTab(ft.Column):
         try:
             photo = await asyncio.to_thread(self.repository.import_photo, path, self.report.id)
             photo.original_name = name
-            photo.caption = self._upload_caption
-            # Ao retomar uma atividade, inserir depois da última foto dela, não
-            # depois de outras atividades que já estão no relatório.
-            peers = [p for p in self._upload_activity if p in self.report.photos]
-            self.report.add_photo(photo, day)
-            if peers:
-                self.report.photos.remove(photo)
-                self.report.photos.insert(self.report.photos.index(peers[-1]) + 1, photo)
-            self._upload_activity.append(photo)
+            if not self._upload_block_id:
+                self._upload_block_id = self.report.add_photo_block().id
+            self.report.add_photo(photo, day, block_id=self._upload_block_id)
         except (ValidationError, OSError) as exc:
             self.toast(f"{name}: {exc}", True)
 
@@ -636,39 +661,36 @@ class ObraTab(ft.Column):
                 self.render_photos()
                 self.commit()
 
-    def render_photos(self) -> None:
+    def render_photos(self, focus_id: str | None = None) -> None:
         self.photo_body.controls.clear()
-        if not self.report.photos:
+        groups = self.report.photo_groups()
+        self.add_block_bottom.visible = bool(groups)
+        if not groups:
             self.photo_body.controls.append(ft.Container(ft.Column([
                 ft.Icon(ft.Icons.ADD_A_PHOTO_OUTLINED, color="#899C8A", size=30),
                 ft.Text("O registro da semana começa aqui", color=INK, weight=ft.FontWeight.W_500),
                 ft.Text("Cada atividade pode ter quantas fotos forem necessárias.", color=MUTED, size=12),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
                 alignment=ft.alignment.center, padding=30, bgcolor=BACKGROUND, border_radius=12))
-        groups = self.report.photo_groups()
-        for group_index, (title, photos) in enumerate(groups):
-            async def rename(event, photos=photos):
+        for group_index, (block, (title, photos)) in enumerate(zip(self.report.photo_blocks, groups)):
+            async def rename(event, block=block):
                 if self.importing_photos:
                     return
-                for photo in photos:
-                    photo.caption = event.control.value
+                self.report.rename_photo_block(block.id, event.control.value)
                 self.commit()
 
-            async def add(event, photos=photos):
-                await self.pick_photos(event, activity=photos)
+            async def add(event, block=block):
+                await self.pick_photos(event, block=block)
 
-            async def move_activity(event, anchor=photos[0], delta=-1):
+            async def move_activity(event, block=block, delta=-1):
                 if self.importing_photos:
                     return
-                current = self.report.photo_groups()
-                index = next(i for i, (_, members) in enumerate(current) if anchor in members)
+                current = self.report.photo_blocks
+                index = current.index(block)
                 target = index + delta
                 if 0 <= target < len(current):
-                    first, last = sorted((index, target))
-                    before, after = current[first][1], current[last][1]
-                    start = self.report.photos.index(before[0])
-                    stop = self.report.photos.index(after[-1]) + 1
-                    self.report.photos[start:stop] = after + before
+                    current[index], current[target] = current[target], current[index]
+                    self.report.order_photo_blocks()
                     self.render_photos()
                     self.commit()
 
@@ -677,19 +699,28 @@ class ObraTab(ft.Column):
             async def activity_down(event, handler=move_activity):
                 await handler(event, delta=1)
 
+            async def remove_empty(event, block=block):
+                if not self.importing_photos and not any(p.block_id == block.id for p in self.report.photos):
+                    self.report.photo_blocks.remove(block)
+                    self.render_photos()
+                    self.commit()
+
             controls = [
-                ft.TextField(label="Atividade (título acima das fotos)", value=photos[0].caption,
+                ft.Text(f"Bloco {group_index + 1:02d} • título e fotos", color=GREEN, weight=ft.FontWeight.W_600),
+                ft.TextField(label="Título deste bloco", value=block.title, autofocus=block.id == focus_id,
                              hint_text="Ex.: Execução de alvenaria", multiline=True,
                              min_lines=1, max_lines=4, text_size=14, border_radius=8,
                              on_change=rename),
                 ft.Row([
                     ft.Text(f"{len(photos)} foto{'s' if len(photos) != 1 else ''}", color=MUTED, size=12),
-                    ft.OutlinedButton("Adicionar mais fotos", icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
-                                      tooltip=f"Adicionar fotos à atividade: {title}", on_click=add),
+                    ft.OutlinedButton("Anexar fotos neste bloco", icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
+                                      tooltip=f"Anexar fotos ao bloco {group_index + 1}: {title}", on_click=add),
                     ft.IconButton(ft.Icons.ARROW_UPWARD, tooltip="Mover atividade para cima",
                                   on_click=move_activity, disabled=group_index == 0),
                     ft.IconButton(ft.Icons.ARROW_DOWNWARD, tooltip="Mover atividade para baixo",
                                   on_click=activity_down, disabled=group_index == len(groups) - 1),
+                    ft.IconButton(ft.Icons.DELETE_OUTLINE, tooltip="Remover bloco vazio",
+                                  visible=not photos, on_click=remove_empty),
                 ], wrap=True, spacing=8),
             ]
             for index, photo in enumerate(photos):
@@ -726,9 +757,20 @@ class ObraTab(ft.Column):
                     self.render_photos()
                     self.commit()
 
+                async def split(event, photo=photo):
+                    if self.importing_photos:
+                        return
+                    created = self.report.split_photo_block(photo.id)
+                    self.render_photos(focus_id=created.id)
+                    self.commit()
+                    self.scroll_photo_block(created.id)
+
                 controls.append(ft.Row([
                     preview,
-                    ft.Text(f"{index + 1:02d}  {photo.original_name}", size=12, color=MUTED, expand=True),
+                    ft.Column([
+                        ft.Text(f"{index + 1:02d}  {photo.original_name}", size=12, color=MUTED),
+                        ft.TextButton("Novo título a partir desta foto", on_click=split, visible=index > 0),
+                    ], expand=True, spacing=4),
                     ft.Column([
                         ft.IconButton(ft.Icons.ARROW_UPWARD, tooltip="Mover foto para cima",
                                       on_click=move, disabled=index == 0),
@@ -738,7 +780,7 @@ class ObraTab(ft.Column):
                     ], spacing=0),
                 ], spacing=12))
             self.photo_body.controls.append(ft.Container(ft.Column(controls, spacing=12),
-                padding=12, bgcolor=BACKGROUND, border_radius=12))
+                padding=12, bgcolor=BACKGROUND, border_radius=12, key=f"{self.report.id}-photo-block-{block.id}"))
 
     def set_busy(self, value: bool) -> None:
         self.busy = value
@@ -815,6 +857,9 @@ class RSOApp:
                             indicator_color=GREEN, label_color=GREEN, unselected_label_color=MUTED,
                             divider_color="#DCE2DA", scrollable=True)
         self.views: dict[str, ObraTab] = {}
+        self.reports: dict[str, Report] = {}
+        self.project_views: dict[str, ProjectReportsTab] = {}
+        self._calendar_year = today().year
         self.connected = True
         self._status_task = None
         self.empty_message = ft.Text("Nenhuma obra cadastrada. Clique em Adicionar obra para começar.",
@@ -849,7 +894,7 @@ class RSOApp:
         if not reports and not list(self.repository.drafts.glob("*.json")):
             reports = self.repository.ensure_default_reports()
         for report in reports:
-            self.add_tab(report)
+            self.add_tab(report, select=False)
         logo = base64.b64encode((ASSETS / "logo.png").read_bytes()).decode()
         page.add(ft.Column([
             ft.Row([ft.Image(src_base64=logo, width=126, height=56, fit=ft.ImageFit.CONTAIN),
@@ -862,7 +907,7 @@ class RSOApp:
             ft.Row([
                 ft.FilledButton("Adicionar obra", icon=ft.Icons.ADD_BUSINESS,
                                 on_click=self.add_project, style=ft.ButtonStyle(bgcolor=GREEN)),
-                ft.OutlinedButton("Novo relatório", icon=ft.Icons.NOTE_ADD_OUTLINED,
+                ft.OutlinedButton("Abrir / criar semana", icon=ft.Icons.NOTE_ADD_OUTLINED,
                                   on_click=self.new_report),
             ], spacing=12, wrap=True),
             ft.Row([
@@ -877,7 +922,7 @@ class RSOApp:
             ], wrap=True, visible=bool(page.web)),
             self.empty_message, self.tabs,
         ], expand=True, spacing=14))
-        self.empty_message.visible = not self.views
+        self.empty_message.visible = not self.reports
         page.on_disconnect = self.disconnected
         page.on_close = self.disconnected
         page.on_connect = self.reconnected
@@ -904,6 +949,11 @@ class RSOApp:
         while self.connected:
             await asyncio.sleep(1)
             changed = self.refresh_projects()
+            if today().year != self._calendar_year:
+                self._calendar_year = today().year
+                for project in self.project_views.values():
+                    project.refresh()
+                changed = True
             for view in list(self.views.values()):
                 before = (view.status.value, view.copy_button.visible)
                 view.refresh_cloud_status()
@@ -913,39 +963,68 @@ class RSOApp:
 
     def copied(self, report: Report):
         self.add_tab(report)
-        self.tabs.selected_index = len(self.tabs.tabs) - 1
         self.page.update()
 
     def name_changed(self, report: Report):
         for tab in self.tabs.tabs:
-            if tab.content.report.id == report.id:
+            if tab.content.key == project_key(report):
                 tab.text = report.tab_name or "Nova obra"
 
-    def add_tab(self, report: Report):
+    def view_for(self, report: Report) -> ObraTab:
+        if report.id in self.views:
+            return self.views[report.id]
         view = ObraTab(self.page, report, self.repository, self.name_changed, self.copied,
-                       self.refresh_projects, self.delete_project)
+                       self.refresh_projects, self.delete_project, self.period_changed)
         state = self.repository.project_states.get(project_key(report))
         view.project_revision = state.revision if state else None
         self.views[report.id] = view
-        self.tabs.tabs.append(ft.Tab(text=report.tab_name, content=view))
+        return view
+
+    def period_changed(self, report: Report):
+        project = self.project_views[project_key(report)]
+        if project.selected_id == report.id:
+            project.select_report(report)
+            self.page.update()
+
+    def add_tab(self, report: Report, *, select: bool = True):
+        # Reutilizar o estado em memória ao reabrir a mesma semana.
+        report = self.reports.setdefault(report.id, report)
+        key = project_key(report)
+        if key not in self.project_views:
+            self.project_views[key] = ProjectReportsTab(self, key)
+            self.tabs.tabs.append(ft.Tab(text=report.tab_name, content=self.project_views[key]))
+        project = self.project_views[key]
+        if select:
+            project.select_report(report)
+            self.tabs.selected_index = next(i for i, tab in enumerate(self.tabs.tabs) if tab.content is project)
+        else:
+            project.refresh()
         self.empty_message.visible = False
 
     def refresh_projects(self):
         changed = False
-        for report_id, view in list(self.views.items()):
-            state = self.repository.project_states.get(project_key(view.report))
+        for report_id, report in list(self.reports.items()):
+            key = project_key(report)
+            view = self.views.get(report_id)
+            state = self.repository.project_states.get(key)
             if state and state.deleted:
-                self.tabs.tabs[:] = [tab for tab in self.tabs.tabs if tab.content is not view]
-                self.views.pop(report_id)
-                for picker in (view.image_picker, view.export_picker):
-                    if picker in self.page.overlay:
-                        self.page.overlay.remove(picker)
+                self.tabs.tabs[:] = [tab for tab in self.tabs.tabs if tab.content.key != key]
+                self.project_views.pop(key, None)
+                self.reports.pop(report_id)
+                self.views.pop(report_id, None)
+                if view:
+                    for picker in (view.image_picker, view.export_picker):
+                        if picker in self.page.overlay:
+                            self.page.overlay.remove(picker)
                 changed = True
-            elif state and state.revision != view.project_revision:
+            elif state and view and state.revision != view.project_revision:
                 view.project_revision = state.revision
                 view.refresh_registration()
                 changed = True
-        self.empty_message.visible = not self.views
+            elif state and not view:
+                self.repository.apply_registration(report)
+                self.name_changed(report)
+        self.empty_message.visible = not self.reports
         if self.tabs.selected_index >= len(self.tabs.tabs):
             self.tabs.selected_index = max(0, len(self.tabs.tabs) - 1)
         return changed
@@ -996,48 +1075,11 @@ class RSOApp:
         self.page.open(dialog)
 
     async def new_report(self, event):
-        try:
-            choices = self.catalog.choices()
-        except ValueError as exc:
-            self.page.open(ft.SnackBar(ft.Text(str(exc))))
-            return
-        if not choices:
+        if not self.tabs.tabs:
             self.page.open(ft.SnackBar(ft.Text("Cadastre uma obra usando Adicionar obra.")))
             return
-        project = ft.Dropdown(label="Obra", value=next(iter(choices)), width=420,
-            options=[ft.dropdown.Option(key, name) for key, name in choices.items()])
-        async def select_project(event):
-            project.value = event.data
-        project.on_change = select_project
-        saving = False
-
-        async def create(event):
-            nonlocal saving
-            if saving:
-                return
-            saving = True
-            create_button.disabled = True
-            self.page.update()
-            try:
-                report = await asyncio.to_thread(self.catalog.new_report, project.value)
-            except (OSError, ValueError) as exc:
-                project.error_text = f"Não foi possível salvar: {exc}"
-                saving = False
-                create_button.disabled = False
-                self.page.update()
-                return
-            self.add_tab(report)
-            self.tabs.selected_index = len(self.tabs.tabs) - 1
-            self.page.close(dialog)
-            self.page.update()
-
-        create_button = ft.FilledButton("Criar relatório", on_click=create)
-        dialog = ft.AlertDialog(title=ft.Text("Novo relatório semanal"),
-            content=ft.Column([project, ft.Text("Os dados cadastrais são preenchidos automaticamente.")],
-                              tight=True, spacing=16),
-            actions=[ft.TextButton("Cancelar", on_click=lambda e: self.page.close(dialog)),
-                     create_button])
-        self.page.open(dialog)
+        project = self.tabs.tabs[self.tabs.selected_index or 0].content
+        await project.open_week(event)
 
     async def add_project(self, event):
         fields = {}
@@ -1090,7 +1132,6 @@ class RSOApp:
                 self.page.update()
                 return
             self.add_tab(report)
-            self.tabs.selected_index = len(self.tabs.tabs) - 1
             self.page.close(dialog)
             self.views[report.id].toast("Obra cadastrada. O primeiro relatório está pronto para preencher.")
             self.page.update()

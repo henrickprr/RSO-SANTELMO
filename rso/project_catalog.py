@@ -4,7 +4,10 @@ O cadastro acompanha cada relatório e o backup. Correções confirmadas e marca
 de exclusão têm precedência sobre essas cópias, inclusive após recuperar a nuvem.
 """
 
+from datetime import date, timedelta
+
 from .models import Report, ValidationError
+from .periods import monday, report_monday
 from .projects import FIXED_FIELDS, PROJECTS, ProjectProfile, normalized_name
 from .project_state import ProjectState, project_key
 from .storage import DraftRepository
@@ -91,15 +94,20 @@ class ProjectCatalog:
             choices = self.choices()
             if profile.key in choices or normalized_name(profile.name) in {
                     normalized_name(name) for name in choices.values()}:
-                raise ValidationError("Esta obra já está cadastrada. Use Novo relatório para outra semana.")
+                raise ValidationError("Esta obra já está cadastrada. Selecione outra semana nos filtros da obra.")
             report = Report.new(profile.name, profile=profile)
             self.repository.save(report)
             return report
 
-    def new_report(self, project_key: str) -> Report:
+    def new_report(self, project_key: str, *, week_start: date | None = None) -> Report:
         with self.repository.lock:
             if project_key not in self.choices():
                 raise ValidationError("Obra não encontrada ou excluída. Reabra o aplicativo.")
+            if week_start is not None:
+                week_start = monday(week_start)
+                existing = [r for r in self.reports_for(project_key) if report_monday(r) == week_start]
+                if existing:
+                    return max(existing, key=lambda r: (r.created_at, r.id))
             state = self.repository.project_states.get(project_key)
             profile = state.profile if state else self._profiles().get(project_key)
             if profile:
@@ -109,5 +117,8 @@ class ProjectCatalog:
                 report = Report.new(project["name"], project["template"])
             else:
                 raise ValidationError("Obra não encontrada. Reabra o aplicativo e tente novamente.")
+            if week_start is not None:
+                report.start = week_start.strftime("%d/%m/%Y")
+                report.end = (week_start + timedelta(days=4)).strftime("%d/%m/%Y")
             self.repository.save(report)
             return report

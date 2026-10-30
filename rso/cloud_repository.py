@@ -228,6 +228,14 @@ class CloudRepository(DraftRepository):
                 report._local_revision = revision_for(self.entries[report.id]["payload"])
             return reports
 
+    def read_current(self, path):
+        with self.lock:
+            report = super().read_current(path)
+            entry = self.entries.get(report.id)
+            if entry:
+                report._local_revision = revision_for(entry["payload"])
+            return report
+
     def request_sync(self, report_id: str):
         with self.lock:
             entry = self.entries.get(report_id)
