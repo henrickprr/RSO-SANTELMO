@@ -17,7 +17,7 @@ from PIL import Image
 from . import __version__
 from .excel_generator import ExcelGenerator
 from .firebase_backend import CloudConflict
-from .models import DAYS, WEATHER, Report, ResourceRow, ValidationError, parse_date
+from .models import DAYS, WEATHER, Photo, Report, ResourceRow, ValidationError, parse_date
 from .pdf_generator import PDFGenerator
 from .project_catalog import ProjectCatalog
 from .projects import COMMON, FIXED_FIELDS, ProjectProfile, apply_project, is_fixed_field
@@ -61,6 +61,8 @@ class ObraTab(ft.Column):
         self.importing_photos = False
         self._photo_selection_handled = False
         self._photo_import_lock = asyncio.Lock()
+        self._upload_activity: list[Photo] = []
+        self._upload_caption = ""
         self.pending_export: Path | None = None
         self.busy = False
         self.image_picker = ft.FilePicker(on_result=self.on_photos_selected,
@@ -345,12 +347,15 @@ class ObraTab(ft.Column):
                 label=f"Serviços executados • {day}", multiline=True, min_lines=3, max_lines=8,
                 border_radius=9, text_size=14, border_color="#D5DDD6", focused_border_color=GREEN,
                 on_change=change_activity)], spacing=8))
-        self.upload_button = ft.OutlinedButton("Adicionar fotos", icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
+        self.upload_button = ft.OutlinedButton("Adicionar fotos de uma atividade", icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
                                                on_click=self.pick_photos)
         photos = [self.field("materials", "Chegada de materiais", multiline=True,
                              hint="Um material por linha. Ex.: 50 sacos de cimento • 30/09"),
-                  ft.Text("Fotos ampliadas no relatório, com a atividade em verde entre duas linhas.",
+                  ft.Text("Selecione quantas fotos precisar e informe o nome da atividade uma única vez.",
                           color=GREEN, size=13), self.upload_button,
+                  ft.Text("Use Adicionar mais fotos na atividade para continuar durante a semana. "
+                          "O relatório cria novas linhas e páginas, mantendo as proporções e margens.",
+                          size=12, color=MUTED),
                   ft.Text("JPG, PNG ou WebP • até 30 MB por foto • rascunhos podem ficar incompletos",
                           size=12, color=MUTED), self.photo_body]
         footer = [ft.ResponsiveRow([
@@ -364,8 +369,8 @@ class ObraTab(ft.Column):
             self.dropdown("theme", "Cabeçalhos do relatório", [
                 ("green", "Verde dos anexos • texto preto"), ("gray", "Cinza escuro • texto branco")],
                 col={"xs": 12, "md": 4}),
-            self.dropdown("photo_columns", "Organização das fotos", [("2", "Duas colunas"),
-                                                                      ("1", "Uma coluna")],
+            self.dropdown("photo_columns", "Fotos por linha na impressão", [("2", "2 fotos por linha"),
+                                                                      ("1", "1 foto por linha")],
                 col={"xs": 12, "md": 4}),
         ], run_spacing=16)]
         self.form = ft.Column([
@@ -500,9 +505,13 @@ class ObraTab(ft.Column):
                                          icon_color=MUTED, on_click=remove))
             body.controls.append(ft.Row(fields, spacing=8))
 
-    async def pick_photos(self, event):
+    async def pick_photos(self, event, *, activity: list[Photo] | None = None):
         if self.importing_photos or self.pending_uploads:
             return
+        # Capturar o destino antes de abrir o seletor. Outro lote/aba não pode
+        # trocar a atividade enquanto os arquivos estão sendo recebidos.
+        self._upload_activity = list(activity or [])
+        self._upload_caption = self._upload_activity[0].caption if self._upload_activity else ""
         # O navegador fornece streams que só podem ser lidos uma vez. Um seletor
         # novo por lote evita reutilizar streams/comandos antigos após erro ou retry.
         previous = self.image_picker
@@ -512,7 +521,7 @@ class ObraTab(ft.Column):
         self._photo_selection_handled = False
         self.set_importing(True)  # Também impede abrir dois seletores ao mesmo tempo.
         try:
-            self.image_picker.pick_files(dialog_title="Fotos gerais da semana", allow_multiple=True,
+            self.image_picker.pick_files(dialog_title="Fotos da atividade — selecione quantas precisar", allow_multiple=True,
                                          file_type=ft.FilePickerFileType.CUSTOM,
                                          allowed_extensions=["jpg", "jpeg", "png", "webp"])
         except Exception as exc:
@@ -523,6 +532,11 @@ class ObraTab(ft.Column):
     def set_importing(self, value: bool) -> None:
         self.importing_photos = value
         self.upload_button.disabled = value
+        # Impedir remoção/renomeação/reordenação do destino durante o envio.
+        self.photo_body.disabled = value
+        if not value:
+            self._upload_activity = []
+            self._upload_caption = ""
         self.refresh_cloud_status()
         self.host_page.update()
 
@@ -555,7 +569,7 @@ class ObraTab(ft.Column):
                     # os índices dos demais. id=-1 força busca por nome único;
                     # usar file.id faz lotes com 3+ fotos enviarem o arquivo errado.
                     uploads.append(ft.FilePickerUploadFile(name=file.name, id=-1,
-                        upload_url=self.host_page.get_upload_url(relative, 600)))
+                        upload_url=self.host_page.get_upload_url(relative, 3600)))
                 if uploads:
                     self.status.value = "Importando fotos…"
                     self.host_page.update()
@@ -571,6 +585,7 @@ class ObraTab(ft.Column):
             for file in event.files:
                 if file.path:
                     await self.import_photo(Path(file.path), file.name, day)
+                    self.commit()  # Preservar cada foto mesmo se um lote grande for interrompido.
         finally:
             self.set_importing(False)
             self.render_photos()
@@ -580,7 +595,15 @@ class ObraTab(ft.Column):
         try:
             photo = await asyncio.to_thread(self.repository.import_photo, path, self.report.id)
             photo.original_name = name
+            photo.caption = self._upload_caption
+            # Ao retomar uma atividade, inserir depois da última foto dela, não
+            # depois de outras atividades que já estão no relatório.
+            peers = [p for p in self._upload_activity if p in self.report.photos]
             self.report.add_photo(photo, day)
+            if peers:
+                self.report.photos.remove(photo)
+                self.report.photos.insert(self.report.photos.index(peers[-1]) + 1, photo)
+            self._upload_activity.append(photo)
         except (ValidationError, OSError) as exc:
             self.toast(f"{name}: {exc}", True)
 
@@ -619,52 +642,103 @@ class ObraTab(ft.Column):
             self.photo_body.controls.append(ft.Container(ft.Column([
                 ft.Icon(ft.Icons.ADD_A_PHOTO_OUTLINED, color="#899C8A", size=30),
                 ft.Text("O registro da semana começa aqui", color=INK, weight=ft.FontWeight.W_500),
-                ft.Text("Adicione fotos e escreva uma legenda para cada imagem.", color=MUTED, size=12),
+                ft.Text("Cada atividade pode ter quantas fotos forem necessárias.", color=MUTED, size=12),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
                 alignment=ft.alignment.center, padding=30, bgcolor=BACKGROUND, border_radius=12))
-        for i, photo in enumerate(self.report.photos):
-            peers = self.report.photos
-            group_index = i
-            try:
-                with Image.open(self.repository.resolve_photo(photo)) as im:
-                    im.thumbnail((210, 150))
-                    buffer = BytesIO()
-                    im.save(buffer, "JPEG")
-                preview = ft.Image(src_base64=base64.b64encode(buffer.getvalue()).decode(),
-                                   width=130, height=94, fit=ft.ImageFit.CONTAIN, border_radius=8,
-                                   semantics_label=f"Foto {i + 1}: {photo.original_name}")
-            except (ValidationError, OSError):
-                preview = ft.Container(ft.Text("Foto ausente", color="#A33232"), width=130, height=94)
+        groups = self.report.photo_groups()
+        for group_index, (title, photos) in enumerate(groups):
+            async def rename(event, photos=photos):
+                if self.importing_photos:
+                    return
+                for photo in photos:
+                    photo.caption = event.control.value
+                self.commit()
 
-            async def move(event, photo=photo, delta=-1):
-                same_day = self.report.photos
-                position = same_day.index(photo) + delta
-                if 0 <= position < len(same_day):
-                    index = self.report.photos.index(photo)
-                    target = self.report.photos.index(same_day[position])
-                    self.report.photos[index], self.report.photos[target] = self.report.photos[target], photo
+            async def add(event, photos=photos):
+                await self.pick_photos(event, activity=photos)
+
+            async def move_activity(event, anchor=photos[0], delta=-1):
+                if self.importing_photos:
+                    return
+                current = self.report.photo_groups()
+                index = next(i for i, (_, members) in enumerate(current) if anchor in members)
+                target = index + delta
+                if 0 <= target < len(current):
+                    first, last = sorted((index, target))
+                    before, after = current[first][1], current[last][1]
+                    start = self.report.photos.index(before[0])
+                    stop = self.report.photos.index(after[-1]) + 1
+                    self.report.photos[start:stop] = after + before
                     self.render_photos()
                     self.commit()
 
-            async def down(event, photo=photo):
-                await move(event, photo=photo, delta=1)
+            # Capturar também a função: closures de laços não podem apontar
+            # para o handler da última atividade quando o usuário clicar.
+            async def activity_down(event, handler=move_activity):
+                await handler(event, delta=1)
 
-            async def remove(event, photo=photo):
-                self.report.photos.remove(photo)
-                # Arquivo preservado para que o backup JSON continue recuperável.
-                self.render_photos()
-                self.commit()
+            controls = [
+                ft.TextField(label="Atividade (título acima das fotos)", value=photos[0].caption,
+                             hint_text="Ex.: Execução de alvenaria", multiline=True,
+                             min_lines=1, max_lines=4, text_size=14, border_radius=8,
+                             on_change=rename),
+                ft.Row([
+                    ft.Text(f"{len(photos)} foto{'s' if len(photos) != 1 else ''}", color=MUTED, size=12),
+                    ft.OutlinedButton("Adicionar mais fotos", icon=ft.Icons.ADD_PHOTO_ALTERNATE_OUTLINED,
+                                      tooltip=f"Adicionar fotos à atividade: {title}", on_click=add),
+                    ft.IconButton(ft.Icons.ARROW_UPWARD, tooltip="Mover atividade para cima",
+                                  on_click=move_activity, disabled=group_index == 0),
+                    ft.IconButton(ft.Icons.ARROW_DOWNWARD, tooltip="Mover atividade para baixo",
+                                  on_click=activity_down, disabled=group_index == len(groups) - 1),
+                ], wrap=True, spacing=8),
+            ]
+            for index, photo in enumerate(photos):
+                try:
+                    with Image.open(self.repository.resolve_photo(photo)) as im:
+                        im.thumbnail((210, 150))
+                        buffer = BytesIO()
+                        im.save(buffer, "JPEG")
+                    preview = ft.Image(src_base64=base64.b64encode(buffer.getvalue()).decode(),
+                                       width=130, height=94, fit=ft.ImageFit.CONTAIN, border_radius=8,
+                                       semantics_label=f"Foto {index + 1}: {photo.original_name}")
+                except (ValidationError, OSError):
+                    preview = ft.Container(ft.Text("Foto ausente", color="#A33232"), width=130, height=94)
 
-            self.photo_body.controls.append(ft.Container(ft.Row([
-                preview, ft.Column([ft.Text(f"{i + 1:02d}  {photo.original_name}", size=12, color=MUTED),
-                    ft.TextField(label="Atividade da foto (título acima da imagem)", value=photo.caption, multiline=True,
-                                 min_lines=2, max_lines=4, text_size=13, border_radius=8,
-                                 on_change=self.bind(photo, "caption"))], expand=True),
-                ft.Column([ft.IconButton(ft.Icons.ARROW_UPWARD, tooltip="Mover foto para cima", on_click=move, disabled=group_index == 0),
-                           ft.IconButton(ft.Icons.ARROW_DOWNWARD, tooltip="Mover foto para baixo", on_click=down,
-                                         disabled=group_index == len(peers) - 1),
-                           ft.IconButton(ft.Icons.DELETE_OUTLINE, tooltip="Remover foto", on_click=remove)], spacing=0)
-            ], spacing=14), padding=12, bgcolor=BACKGROUND, border_radius=12))
+                async def move(event, photo=photo, peers=photos, delta=-1):
+                    if self.importing_photos:
+                        return
+                    position = peers.index(photo) + delta
+                    if 0 <= position < len(peers):
+                        source = self.report.photos.index(photo)
+                        target = self.report.photos.index(peers[position])
+                        self.report.photos[source], self.report.photos[target] = self.report.photos[target], photo
+                        self.render_photos()
+                        self.commit()
+
+                async def down(event, handler=move):
+                    await handler(event, delta=1)
+
+                async def remove(event, photo=photo):
+                    if self.importing_photos:
+                        return
+                    self.report.photos.remove(photo)
+                    # Arquivo preservado para que o backup JSON continue recuperável.
+                    self.render_photos()
+                    self.commit()
+
+                controls.append(ft.Row([
+                    preview,
+                    ft.Text(f"{index + 1:02d}  {photo.original_name}", size=12, color=MUTED, expand=True),
+                    ft.Column([
+                        ft.IconButton(ft.Icons.ARROW_UPWARD, tooltip="Mover foto para cima",
+                                      on_click=move, disabled=index == 0),
+                        ft.IconButton(ft.Icons.ARROW_DOWNWARD, tooltip="Mover foto para baixo",
+                                      on_click=down, disabled=index == len(photos) - 1),
+                        ft.IconButton(ft.Icons.DELETE_OUTLINE, tooltip="Remover foto", on_click=remove),
+                    ], spacing=0),
+                ], spacing=12))
+            self.photo_body.controls.append(ft.Container(ft.Column(controls, spacing=12),
+                padding=12, bgcolor=BACKGROUND, border_radius=12))
 
     def set_busy(self, value: bool) -> None:
         self.busy = value

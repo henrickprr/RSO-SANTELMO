@@ -326,17 +326,11 @@ class LayoutEngine:
                  align="C", fill=self.fill, color="FFFFFF", size=t.font_size + 1)
 
     def photo_rows(self):
-        # Agrupar fotos consecutivas da mesma atividade. O título vem ACIMA
-        # de uma ou duas imagens, como nos anexos, sem rótulo de dia/data.
-        groups = []
-        for photo in self.report.photos:
-            title = photo.caption.strip() or "REGISTRO DA SEMANA"
-            if groups and groups[-1][0] == title:
-                groups[-1][1].append(photo)
-            else:
-                groups.append((title, [photo]))
+        # Uma atividade pode ter qualquer quantidade de fotos. A largura/altura
+        # do grid não muda: distribuir em novas linhas e páginas, sem comprimir
+        # imagens para caber tudo numa linha. Repetir o título nas continuações.
         columns = self.report.photo_columns
-        for title, group in groups:
+        for title, group in self.report.photo_groups():
             for offset in range(0, len(group), columns):
                 yield title, group[offset:offset + columns]
 

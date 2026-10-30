@@ -135,6 +135,22 @@ class Report:
         photo.day = day
         self.photos.append(photo)
 
+    def photo_groups(self) -> list[tuple[str, list[Photo]]]:
+        """Atividades na ordem escolhida, sem limite de fotos por atividade.
+
+        Mantém o formato dos rascunhos/Firebase existentes: fotos consecutivas
+        com a mesma legenda pertencem à mesma atividade. Duas colunas definem
+        somente a quantidade de imagens POR LINHA na impressão.
+        """
+        groups: list[tuple[str, list[Photo]]] = []
+        for photo in self.photos:
+            title = photo.caption.strip() or "REGISTRO DA SEMANA"
+            if groups and groups[-1][0] == title:
+                groups[-1][1].append(photo)
+            else:
+                groups.append((title, [photo]))
+        return groups
+
     def validate_photos(self) -> None:
         if len({p.id for p in self.photos}) != len(self.photos):
             raise ValidationError("Há identificadores de fotos duplicados no relatório.")
