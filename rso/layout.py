@@ -328,26 +328,29 @@ class LayoutEngine:
     def photo_rows(self):
         # Uma atividade pode ter qualquer quantidade de fotos. A largura/altura
         # do grid não muda: distribuir em novas linhas e páginas, sem comprimir
-        # imagens para caber tudo numa linha. Repetir o título nas continuações.
+        # imagens para caber tudo numa linha. O título aparece apenas na primeira
+        # linha do bloco; None indica continuação, inclusive em outra página.
         columns = self.report.photo_columns
         for title, group in self.report.photo_groups():
             for offset in range(0, len(group), columns):
-                yield title, group[offset:offset + columns]
+                yield title if offset == 0 else None, group[offset:offset + columns]
 
-    def photo_row_dimensions(self, title: str) -> tuple[float, float]:
-        caption_h = min(70, max(28, len(self.type.wrap(title, self.t.width - 8, 10, True)) * 12 + 10))
+    def photo_row_dimensions(self, title: str | None) -> tuple[float, float]:
+        caption_h = (min(70, max(28, len(self.type.wrap(title, self.t.width - 8, 10, True)) * 12 + 10))
+                     if title is not None else 0)
         return caption_h, 210 if self.report.photo_columns == 2 else 300
 
-    def draw_photo_row(self, page: PagePlan, title: str, photos: list[Photo], y: float) -> float:
+    def draw_photo_row(self, page: PagePlan, title: str | None, photos: list[Photo], y: float) -> float:
         # Medidas em pontos, reutilizadas na paginação PDF e no fluxo contínuo XLSX.
         t = self.t
-        gap, title_gap, row_gap = 8, 6, 14
+        gap, title_gap, row_gap = 8, 6 if title is not None else 0, 14
         caption_h, image_h = self.photo_row_dimensions(title)
         photo_w = (t.width - (self.report.photo_columns - 1) * gap) / self.report.photo_columns
-        self.box(page, t.left, y, t.width, caption_h, title,
-                 bold=True, align="C", color="548235", size=10, border="TB",
-                 border_color="385723", border_width=1.6,
-                 label="Atividade do registro fotográfico")
+        if title is not None:
+            self.box(page, t.left, y, t.width, caption_h, title,
+                     bold=True, align="C", color="548235", size=10, border="TB",
+                     border_color="385723", border_width=1.6,
+                     label="Atividade do registro fotográfico")
         for col, photo in enumerate(photos):
             x = t.left + col * (photo_w + gap)
             page.pictures.append(Picture(x, y + caption_h + title_gap, photo_w, image_h,
@@ -362,7 +365,10 @@ class LayoutEngine:
         y = t.photos_y + t.title_h + 10
         for title, photos in self.photo_rows():
             caption_h, image_h = self.photo_row_dimensions(title)
-            if y + caption_h + 6 + image_h > t.footer_y - 10:
+            title_gap = 6 if title is not None else 0
+            # Título e primeiras fotos passam juntos à próxima página. As
+            # continuações não reservam espaço para título nem repetem bordas.
+            if y + caption_h + title_gap + image_h > t.footer_y - 10:
                 current = PagePlan("Fotos")
                 pages.append(current)
                 self.band(current, 38, "RELATÓRIO FOTOGRÁFICO")
